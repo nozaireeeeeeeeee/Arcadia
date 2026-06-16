@@ -36,11 +36,14 @@ async def on_ready():
 
 # 3. Fonction d'appel API (Start / Stop)
 async def call_minestrator(interaction: nextcord.Interaction, action: str):
+    # Vérification Whitelist
     if str(interaction.user.id) not in ALLOWED_USERS:
-        await interaction.response.send_message("❌ Accès refusé.", ephemeral=True)
+        await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
         return
 
+    # On prévient Discord qu'on travaille (defer)
     await interaction.response.defer()
+    
     headers = {"Authorization": f"Bearer {MINE_TOKEN}", "Content-Type": "application/json"}
     url = f"https://api.minestrator.com/v1/servers/{SERVER_ID}/{action}"
 
@@ -64,36 +67,36 @@ async def stop_server(interaction: nextcord.Interaction):
 
 @bot.slash_command(name="list_servers", description="Affiche tes serveurs")
 async def list_servers(interaction: nextcord.Interaction):
+    # 1. Vérification Whitelist en premier
     if str(interaction.user.id) not in ALLOWED_USERS:
-        await interaction.response.send_message("❌ Accès refusé.", ephemeral=True)
+        await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
         return
 
+    # 2. On "defer" une seule fois, UNIQUEMENT si l'utilisateur est autorisé
     await interaction.response.defer(ephemeral=True)
-    headers = {"Authorization": f"Bearer {MINE_TOKEN}", "Content-Type": "application/json"}
     
-    # On utilise l'URL qui a fonctionné pour toi
+    headers = {"Authorization": f"Bearer {MINE_TOKEN}", "Content-Type": "application/json"}
     url = "https://api.minestrator.com/v1/me/servers"
     
     try:
         r = requests.get(url, headers=headers, timeout=15)
         if r.status_code == 200:
-            # Traitement simplifié pour afficher proprement
             data = r.json()
             servers = data if isinstance(data, list) else data.get("servers", [])
             
             if not servers:
                 await interaction.followup.send("📋 Aucun serveur trouvé.", ephemeral=True)
             else:
-                msg = "📋 **Tes serveurs :**\n"
+                msg = "📋 **Tes serveurs trouvés :**\n"
                 for s in servers:
                     s_id = s.get("id") or "Inconnu"
-                    s_name = s.get("name") or "Serveur"
+                    s_name = s.get("name") or "Serveur Minecraft"
                     msg += f"• {s_name} | ID : `{s_id}`\n"
                 await interaction.followup.send(msg, ephemeral=True)
         else:
             await interaction.followup.send(f"❌ Erreur {r.status_code} : {r.text}", ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"⚠️ Erreur : {str(e)}", ephemeral=True)
+        await interaction.followup.send(f"⚠️ Erreur de connexion : {str(e)}", ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
