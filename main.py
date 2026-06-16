@@ -5,53 +5,73 @@ import nextcord
 from nextcord.ext import commands
 import requests
 
-# --- SERVEUR WEB ANTI-VEILLE ---
+# ----------------- PARTIE SERVEUR WEB (ANTI-VEILLE) -----------------
 app = Flask('')
+
 @app.route('/')
-def home(): return "Bot en ligne !"
+def home():
+    return "Le bot Arcadia est en ligne !"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# --- BOT DISCORD ---
+# ----------------- PARTIE BOT DISCORD -----------------
 TOKEN = os.environ.get("DISCORD_TOKEN")
 API_KEY = os.environ.get("MINESTRATOR_API_KEY")
-# On récupère l'URL complète directement depuis Render
 URL_DEMARRAGE = os.environ.get("MINESTRATOR_URL")
 
+# Configuration du bot
 bot = commands.Bot()
 
 @bot.event
 async def on_ready():
-    print(f"✅ Bot connecté")
+    print(f"✅ Arcadia Bot connecté avec succès en tant que : {bot.user}")
+    # Force Discord à synchroniser immédiatement les commandes slash au démarrage
+    await bot.sync_all_application_commands()
+    print("🔄 Commandes Slash synchronisées avec Discord !")
 
-@bot.slash_command(name="start", description="Lance le serveur Minecraft.")
+@bot.slash_command(
+    name="start",
+    description="Lance le serveur Minecraft Arcadia SMP."
+)
 async def start_server(interaction: nextcord.Interaction):
+    # Sécurité : Seuls les admins du Discord peuvent l'utiliser
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Pas la permission.", ephemeral=True)
+        await interaction.response.send_message("❌ Tu n'as pas la permission d'utiliser cette commande.", ephemeral=True)
         return
 
+    # Évite le message "This command is outdated" ou les timeouts Discord
     await interaction.response.defer()
 
+    # Configuration des Headers avec le USER-AGENT pour contourner le blocage 403 Forbidden
     headers = {
         "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
 
     try:
+        # Envoi de la requête à MineStrator
         response = requests.post(URL_DEMARRAGE, headers=headers)
         
-        if response.status_code in [200, 204]: # 200 ou 204 = Succès
-            await interaction.followup.send("🚀 **Le serveur démarre enfin !**")
+        print(f"[DEBUG] Code reçu : {response.status_code}")
+
+        # MineStrator répond généralement avec un code 200 ou 204 quand ça marche
+        if response.status_code in [200, 204]:
+            await interaction.followup.send("🚀 **Le serveur Arcadia SMP est en cours de démarrage !**")
         else:
             await interaction.followup.send(
-                f"⚠️ MineStrator bloque.\n"
-                f"• Code HTTP : `{response.status_code}`\n"
-                f"• Message : `{response.text[:150]}`"
+                f"⚠️ L'API MineStrator a refusé la demande.\n"
+                f"• **Code HTTP :** `{response.status_code}`\n"
+                f"• **Réponse :** `{response.text[:150]}`"
             )
+            
     except Exception as e:
-        await interaction.followup.send(f"💥 Erreur script : `{str(e)}`")
+        await interaction.followup.send(f"💥 Une erreur est survenue dans le script : `{str(e)}`")
 
+# Lancement du serveur Web anti-veille (UptimeRobot)
 threading.Thread(target=run_web_server).start()
+
+# Lancement du bot Discord
 bot.run(TOKEN)
