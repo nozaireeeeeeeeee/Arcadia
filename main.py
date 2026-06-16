@@ -64,12 +64,37 @@ async def start_server(interaction: nextcord.Interaction):
 @bot.slash_command(name="stop", description="Arrête le serveur")
 async def stop_server(interaction: nextcord.Interaction):
     await call_minestrator(interaction, "stop")
-
-@bot.slash_command(name="list_servers", description="Affiche la liste de tes serveurs")
+@bot.slash_command(name="list_servers", description="Affiche tes serveurs")
 async def list_servers(interaction: nextcord.Interaction):
-    # 1. Vérification Whitelist
+    # 1. D'ABORD la vérification de l'autorisation
     if str(interaction.user.id) not in ALLOWED_USERS:
         await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
+        return
+
+    # 2. Ensuite, on prévient Discord que l'action est en cours
+    await interaction.response.defer(ephemeral=True)
+
+    # 3. Préparation de la requête
+    headers = {
+        "Authorization": f"Bearer {MINE_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    # 4. COLLE TON URL EXACTE ICI ENTRE LES GUILLEMETS
+    url = "METS_TON_URL_ICI_ENTRE_LES_GUILLEMETS"
+    
+    # 5. Appel API et gestion des résultats
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        
+        if r.status_code == 200:
+            # Ici le bot affichera la réponse brute, ce qui nous aidera à confirmer le format
+            await interaction.followup.send(f"✅ Réponse API : {r.text}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Erreur {r.status_code} : {r.text}", ephemeral=True)
+            
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ Erreur de connexion : {str(e)}", ephemeral=True)
         return
 
     # 2. Defer unique (pour éviter les erreurs d'interaction)
