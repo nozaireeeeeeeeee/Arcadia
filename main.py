@@ -39,14 +39,14 @@ async def call_action(interaction, action):
     data = {"hashsupport": SERVER_ID, "action": action}
     url = "https://rest.minestrator.com/api/v1/server/action"
     try:
-        r = requests.post(url, headers=headers, data=data, timeout=30)
-        print(f"[{action.upper()}] Status: {r.status_code} | Body: {r.text[:600]}")
+        r = requests.post(url, headers=headers, data=data, timeout=20)
+        print(f"[{action.upper()}] {r.status_code} | {r.text[:500]}")
         if r.status_code in (200, 204):
-            await interaction.followup.send(f"✅ **{action.upper()}** envoyé.")
+            await interaction.followup.send(f"✅ **{action.upper()}** OK")
         else:
-            await interaction.followup.send(f"❌ Échec {action}: {r.status_code}")
+            await interaction.followup.send(f"❌ {action} : {r.status_code}")
     except Exception as e:
-        await interaction.followup.send(f"Erreur {action}: {str(e)}")
+        await interaction.followup.send(f"Erreur {action} : {str(e)[:150]}")
 
 @bot.slash_command(name="start", description="Démarre le serveur")
 async def start_server(interaction: nextcord.Interaction):
