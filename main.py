@@ -5,56 +5,67 @@ import nextcord
 from nextcord.ext import commands
 import requests
 
+# 1. Serveur Web (Optionnel sur Railway, mais conserve la compatibilité)
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot online"
+    return "Bot en ligne sur Railway !"
 
 def run_web_server():
+    # Railway fournit automatiquement la variable PORT
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-TOKEN = os.environ.get("DISCORD_TOKEN")
-API_KEY = os.environ.get("MINESTRATOR_API_KEY")
-SERVER_ID = os.environ.get("SERVER_ID")
-
+# 2. Configuration du Bot
 bot = commands.Bot()
+
+TOKEN = os.environ.get("DISCORD_TOKEN")
+API_KEY = os.environ.get("WISPBYTE_API_KEY")
+SERVER_ID = os.environ.get("SERVER_ID")
+BASE_URL = "https://panel.wispbyte.com" 
 
 @bot.event
 async def on_ready():
-    print(f"Bot connected: {bot.user}")
+    print(f"Bot connecté sur Railway : {bot.user}")
     await bot.sync_all_application_commands()
 
-async def call_action(interaction, action):
+# 3. Fonction API WispByte
+async def call_wisp(interaction: nextcord.Interaction, action: str):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("Pas de permission.", ephemeral=True)
+        await interaction.response.send_message("❌ Pas de permission.", ephemeral=True)
         return
+
     await interaction.response.defer()
+
     headers = {
-        "Authorization": API_KEY,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "Authorization": f"Bearer {API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
-    data = {"hashsupport": SERVER_ID, "action": action}
-    url = "https://rest.minestrator.com/api/v1/server/action"
+    
+    url = f"{BASE_URL}/api/client/servers/{SERVER_ID}/power"
+    data = {"signal": action}
+
     try:
-        r = requests.post(url, headers=headers, data=data, timeout=20)
-        print(f"[{action.upper()}] {r.status_code} | {r.text[:500]}")
-        if r.status_code in (200, 204):
-            await interaction.followup.send(f"✅ **{action.upper()}** OK")
+        r = requests.post(url, headers=headers, json=data, timeout=15)
+        print(f"[WISPBYTE] {action.upper()} | Code HTTP: {r.status_code}")
+        
+        if r.status_code in (204, 200):
+            await interaction.followup.send(f"🟢 Commande **{action.upper()}** exécutée avec succès !")
         else:
-            await interaction.followup.send(f"❌ {action} : {r.status_code}")
+            await interaction.followup.send(f"❌ Erreur WispByte : {r.status_code}")
     except Exception as e:
-        await interaction.followup.send(f"Erreur {action} : {str(e)[:150]}")
+        await interaction.followup.send(f"⚠️ Erreur de connexion : {str(e)}")
 
-@bot.slash_command(name="start", description="Démarre le serveur")
+@bot.slash_command(name="start", description="Démarre le serveur Minecraft")
 async def start_server(interaction: nextcord.Interaction):
-    await call_action(interaction, "start")
+    await call_wisp(interaction, "start")
 
-@bot.slash_command(name="stop", description="Arrête le serveur")
+@bot.slash_command(name="stop", description="Arrête le serveur Minecraft")
 async def stop_server(interaction: nextcord.Interaction):
-    await call_action(interaction, "stop")
+    await call_wisp(interaction, "stop")
 
-threading.Thread(target=run_web_server).start()
-bot.run(TOKEN)
+if __name__ == "__main__":
+    threading.Thread(target=run_web_server, daemon=True).start()
+    bot.run(TOKEN)
