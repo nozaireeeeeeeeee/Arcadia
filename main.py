@@ -81,7 +81,7 @@ async def list_servers(interaction: nextcord.Interaction):
     }
     
     # 4. COLLE TON URL EXACTE ICI ENTRE LES GUILLEMETS
-    url = "METS_TON_URL_ICI_ENTRE_LES_GUILLEMETS"
+    url = "https://api.minestrator.com/v1/me/servers"
     
     # 5. Appel API et gestion des résultats
     try:
