@@ -20,20 +20,22 @@ def run_web_server():
 TOKEN = os.environ.get("DISCORD_TOKEN")
 API_KEY = os.environ.get("MINESTRATOR_API_KEY")
 URL_DEMARRAGE = os.environ.get("MINESTRATOR_URL")
+GUILD_ID = os.environ.get("DISCORD_GUILD_ID")
 
-# Configuration du bot
 bot = commands.Bot()
+
+# Force l'activation instantanée de la commande sur ton serveur Discord précis
+guild_ids_list = [int(GUILD_ID)] if GUILD_ID else None
 
 @bot.event
 async def on_ready():
     print(f"✅ Arcadia Bot connecté avec succès en tant que : {bot.user}")
-    # Force Discord à synchroniser immédiatement les commandes slash au démarrage
     await bot.sync_all_application_commands()
-    print("🔄 Commandes Slash synchronisées avec Discord !")
 
 @bot.slash_command(
     name="start",
-    description="Lance le serveur Minecraft Arcadia SMP."
+    description="Lance le serveur Minecraft Arcadia SMP.",
+    guild_ids=guild_ids_list
 )
 async def start_server(interaction: nextcord.Interaction):
     # Sécurité : Seuls les admins du Discord peuvent l'utiliser
@@ -55,9 +57,7 @@ async def start_server(interaction: nextcord.Interaction):
         # Envoi de la requête à MineStrator
         response = requests.post(URL_DEMARRAGE, headers=headers)
         
-        print(f"[DEBUG] Code reçu : {response.status_code}")
-
-        # MineStrator répond généralement avec un code 200 ou 204 quand ça marche
+        # Si MineStrator répond positivement (Code 200 ou 204)
         if response.status_code in [200, 204]:
             await interaction.followup.send("🚀 **Le serveur Arcadia SMP est en cours de démarrage !**")
         else:
