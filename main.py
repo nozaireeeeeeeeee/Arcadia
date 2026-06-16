@@ -16,7 +16,7 @@ def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# 2. Configuration du Bot Discord (Intents obligatoires)
+# 2. Configuration du Bot Discord
 intents = nextcord.Intents.default()
 bot = commands.Bot(intents=intents)
 
@@ -24,19 +24,23 @@ TOKEN = os.environ.get("DISCORD_TOKEN")
 MINE_TOKEN = os.environ.get("MINESTRATOR_TOKEN")
 SERVER_ID = os.environ.get("SERVER_ID")
 
+# Récupération de la Whitelist (séparée par des virgules si plusieurs ID)
+ALLOWED_USERS = os.environ.get("ALLOWED_USERS", "").split(",")
+
 @bot.event
 async def on_ready():
     print(f"✅ Bot connecté avec succès sur Railway : {bot.user}")
     try:
         await bot.sync_all_application_commands()
-        print("✅ Toutes les commandes Slash (start, stop, list_servers) ont été synchronisées avec Discord !")
+        print("✅ Toutes les commandes (start, stop, list_servers) ont été synchronisées !")
     except Exception as e:
         print(f"⚠️ Erreur lors de la synchronisation : {e}")
 
-# 3. Fonction d'appel API MineStrator pour Actions (Start/Stop)
+# 3. Fonction d'appel API MineStrator (Start / Stop)
 async def call_minestrator(interaction: nextcord.Interaction, action: str):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+    # WHITELIST : Vérification de l'ID
+    if str(interaction.user.id) not in ALLOWED_USERS:
+        await interaction.response.send_message("❌ Tu n'as pas l'autorisation d'utiliser cette commande.", ephemeral=True)
         return
 
     await interaction.response.defer()
@@ -46,19 +50,17 @@ async def call_minestrator(interaction: nextcord.Interaction, action: str):
         "Content-Type": "application/json"
     }
     
-    # URL basée sur tes retours : v1/servers/456343/start
     url = f"https://api.minestrator.com/v1/servers/{SERVER_ID}/{action}"
 
     try:
         r = requests.post(url, headers=headers, timeout=15)
-        print(f"[MINESTRATOR] Action: {action.upper()} | Code HTTP: {r.status_code}")
         
         if r.status_code in (200, 204, 201):
-            await interaction.followup.send(f"🟢 Commande **{action.upper()}** validée par MineStrator avec succès !")
+            await interaction.followup.send(f"🟢 Commande **{action.upper()}** validée par MineStrator !")
         elif r.status_code == 404:
-            await interaction.followup.send(f"❌ **Erreur 404** : Le serveur `{SERVER_ID}` est introuvable. Vérifie ton SERVER_ID sur Railway.")
+            await interaction.followup.send(f"❌ **Erreur 404** : Le serveur `{SERVER_ID}` est introuvable.")
         elif r.status_code == 401:
-            await interaction.followup.send("❌ **Erreur 401** : Ta clé API `MINESTRATOR_TOKEN` est refusée.")
+            await interaction.followup.send("❌ **Erreur 401** : Ta clé API MineStrator est refusée.")
         else:
             await interaction.followup.send(f"❌ MineStrator a répondu avec le code : {r.status_code}")
             
@@ -66,6 +68,7 @@ async def call_minestrator(interaction: nextcord.Interaction, action: str):
         await interaction.followup.send(f"⚠️ Erreur de connexion : {str(e)}")
 
 # 4. Commandes Slash Discord
+
 @bot.slash_command(name="start", description="Démarre le serveur MineStrator")
 async def start_server(interaction: nextcord.Interaction):
     await call_minestrator(interaction, "start")
@@ -74,13 +77,13 @@ async def start_server(interaction: nextcord.Interaction):
 async def stop_server(interaction: nextcord.Interaction):
     await call_minestrator(interaction, "stop")
 
-@bot.slash_command(name="list_servers", description="Affiche la liste de tes serveurs MineStrator et leurs ID")
+@bot.slash_command(name="list_servers", description="Affiche la liste de tes serveurs MineStrator")
 async def list_servers(interaction: nextcord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+    # WHITELIST : Vérification de l'ID ici aussi
+    if str(interaction.user.id) not in ALLOWED_USERS:
+        await interaction.response.send_message("❌ Tu n'as pas l'autorisation d'utiliser cette commande.", ephemeral=True)
         return
-        
-    # La commande répond en mode éphémère (caché des autres membres)
+
     await interaction.response.defer(ephemeral=True)
     
     headers = {
@@ -91,7 +94,6 @@ async def list_servers(interaction: nextcord.Interaction):
     
     try:
         r = requests.get(url, headers=headers, timeout=15)
-        print(f"[MINESTRATOR] List Servers | Code HTTP: {r.status_code}")
         
         if r.status_code == 200:
             data = r.json()
@@ -102,21 +104,15 @@ async def list_servers(interaction: nextcord.Interaction):
                 for s in servers:
                     s_id = s.get("id") or s.get("server_id") or s.get("uuid") or "Inconnu"
                     s_name = s.get("name") or "Serveur Minecraft"
-                    msg += f"• **Nom :** {s_name} | **ID à mettre sur Railway :** `{s_id}`\n"
+                    msg += f"• **Nom :** {s_name} | **ID :** `{s_id}`\n"
                 await interaction.followup.send(msg, ephemeral=True)
             else:
-                await interaction.followup.send(f"📋 Aucun serveur trouvé ou format de réponse inconnu : `{r.text[:200]}`", ephemeral=True)
-        elif r.status_code == 401:
-            await interaction.followup.send("❌ **Erreur 401** : Ta clé API `MINESTRATOR_TOKEN` est incorrecte ou refusée.", ephemeral=True)
+                await interaction.followup.send("📋 Aucun serveur trouvé.", ephemeral=True)
         else:
             await interaction.followup.send(f"❌ Impossible de récupérer la liste (Code HTTP {r.status_code}).", ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"⚠️ Erreur de connexion : {str(e)}", ephemeral=True)
+        await interaction.followup.send(f"⚠️ Erreur : {str(e)}", ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
-    
-    if not TOKEN:
-        print("❌ ERREUR : La variable DISCORD_TOKEN est vide sur Railway !")
-    else:
-        bot.run(TOKEN)
+    bot.run(TOKEN)
