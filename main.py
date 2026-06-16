@@ -65,11 +65,48 @@ async def start_server(interaction: nextcord.Interaction):
 async def stop_server(interaction: nextcord.Interaction):
     await call_minestrator(interaction, "stop")
 
-@bot.slash_command(name="list_servers", description="Affiche tes serveurs")
+@bot.slash_command(name="list_servers", description="Affiche la liste de tes serveurs")
 async def list_servers(interaction: nextcord.Interaction):
-    # 1. Vérification Whitelist en premier
+    # 1. Vérification Whitelist
     if str(interaction.user.id) not in ALLOWED_USERS:
         await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
+        return
+
+    # 2. Defer unique (pour éviter les erreurs d'interaction)
+    await interaction.response.defer(ephemeral=True)
+    
+    headers = {
+        "Authorization": f"Bearer {MINE_TOKEN}", 
+        "Content-Type": "application/json"
+    }
+    
+    # Tentative avec /me/servers (plus probable pour lister tes serveurs)
+    url = "https://api.minestrator.com/v1/me/servers"
+    
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        
+        if r.status_code == 200:
+            data = r.json()
+            # Construction du message
+            msg = "📋 **Tes serveurs trouvés :**\n"
+            # On vérifie si c'est une liste ou un dict
+            servers = data if isinstance(data, list) else data.get("servers", [])
+            
+            if not servers:
+                msg = "📋 Aucun serveur trouvé sous ce compte."
+            else:
+                for s in servers:
+                    msg += f"• {s.get('name', 'Serveur')} | ID : `{s.get('id', 'N/A')}`\n"
+            
+            await interaction.followup.send(msg, ephemeral=True)
+            
+        else:
+            # Si ça échoue encore, on affiche la réponse exacte pour comprendre
+            await interaction.followup.send(f"❌ Erreur {r.status_code} : {r.text}", ephemeral=True)
+            
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ Erreur : {str(e)}", ephemeral=True)
         return
 
     # 2. On "defer" une seule fois, UNIQUEMENT si l'utilisateur est autorisé
