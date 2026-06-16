@@ -42,9 +42,9 @@ async def call_action(interaction, action):
         r = requests.post(url, headers=headers, data=data, timeout=30)
         print(f"[{action.upper()}] Status: {r.status_code} | Body: {r.text[:600]}")
         if r.status_code in (200, 204):
-            await interaction.followup.send(f"✅ **{action.upper()}** envoyé avec succès.")
+            await interaction.followup.send(f"✅ **{action.upper()}** envoyé.")
         else:
-            await interaction.followup.send(f"❌ Échec {action}: {r.status_code}\n{r.text[:400]}")
+            await interaction.followup.send(f"❌ Échec {action}: {r.status_code}")
     except Exception as e:
         await interaction.followup.send(f"Erreur {action}: {str(e)}")
 
