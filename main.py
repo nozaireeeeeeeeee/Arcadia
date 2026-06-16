@@ -16,7 +16,7 @@ def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# 2. Configuration du Bot Discord (Intents obligatoires pour Nextcord)
+# 2. Configuration du Bot Discord (Intents obligatoires)
 intents = nextcord.Intents.default()
 bot = commands.Bot(intents=intents)
 
@@ -29,11 +29,11 @@ async def on_ready():
     print(f"✅ Bot connecté avec succès sur Railway : {bot.user}")
     try:
         await bot.sync_all_application_commands()
-        print("✅ Les commandes Slash ont été synchronisées avec Discord !")
+        print("✅ Toutes les commandes Slash (start, stop, list_servers) ont été synchronisées avec Discord !")
     except Exception as e:
         print(f"⚠️ Erreur lors de la synchronisation : {e}")
 
-# 3. Fonction d'appel API MineStrator
+# 3. Fonction d'appel API MineStrator pour Actions (Start/Stop)
 async def call_minestrator(interaction: nextcord.Interaction, action: str):
     if not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
@@ -46,7 +46,7 @@ async def call_minestrator(interaction: nextcord.Interaction, action: str):
         "Content-Type": "application/json"
     }
     
-    # URL exacte basée sur tes recherches : .../v1/servers/456343/start
+    # URL basée sur tes retours : v1/servers/456343/start
     url = f"https://api.minestrator.com/v1/servers/{SERVER_ID}/{action}"
 
     try:
@@ -56,7 +56,7 @@ async def call_minestrator(interaction: nextcord.Interaction, action: str):
         if r.status_code in (200, 204, 201):
             await interaction.followup.send(f"🟢 Commande **{action.upper()}** validée par MineStrator avec succès !")
         elif r.status_code == 404:
-            await interaction.followup.send(f"❌ **Erreur 404** : Le serveur `{SERVER_ID}` est introuvable sur ton compte.")
+            await interaction.followup.send(f"❌ **Erreur 404** : Le serveur `{SERVER_ID}` est introuvable. Vérifie ton SERVER_ID sur Railway.")
         elif r.status_code == 401:
             await interaction.followup.send("❌ **Erreur 401** : Ta clé API `MINESTRATOR_TOKEN` est refusée.")
         else:
@@ -73,6 +73,45 @@ async def start_server(interaction: nextcord.Interaction):
 @bot.slash_command(name="stop", description="Arrête le serveur MineStrator")
 async def stop_server(interaction: nextcord.Interaction):
     await call_minestrator(interaction, "stop")
+
+@bot.slash_command(name="list_servers", description="Affiche la liste de tes serveurs MineStrator et leurs ID")
+async def list_servers(interaction: nextcord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
+        return
+        
+    # La commande répond en mode éphémère (caché des autres membres)
+    await interaction.response.defer(ephemeral=True)
+    
+    headers = {
+        "Authorization": f"Bearer {MINE_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    url = "https://api.minestrator.com/v1/servers"
+    
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        print(f"[MINESTRATOR] List Servers | Code HTTP: {r.status_code}")
+        
+        if r.status_code == 200:
+            data = r.json()
+            servers = data.get("servers", data)
+            
+            if isinstance(servers, list) and len(servers) > 0:
+                msg = "📋 **Tes serveurs MineStrator trouvés :**\n"
+                for s in servers:
+                    s_id = s.get("id") or s.get("server_id") or s.get("uuid") or "Inconnu"
+                    s_name = s.get("name") or "Serveur Minecraft"
+                    msg += f"• **Nom :** {s_name} | **ID à mettre sur Railway :** `{s_id}`\n"
+                await interaction.followup.send(msg, ephemeral=True)
+            else:
+                await interaction.followup.send(f"📋 Aucun serveur trouvé ou format de réponse inconnu : `{r.text[:200]}`", ephemeral=True)
+        elif r.status_code == 401:
+            await interaction.followup.send("❌ **Erreur 401** : Ta clé API `MINESTRATOR_TOKEN` est incorrecte ou refusée.", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Impossible de récupérer la liste (Code HTTP {r.status_code}).", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ Erreur de connexion : {str(e)}", ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
