@@ -42,7 +42,7 @@ async def start_server(interaction: nextcord.Interaction):
     await interaction.response.defer()
 
     # Configuration de la requête vers MineStrator
-    url = f"https://api.minestrator.com/v1/server/{SERVER_ID}/action/start"
+    url = f"https://api.minestrator.com/v1/servers/%7BSERVER_ID%7D/start"
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json"
