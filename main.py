@@ -77,11 +77,34 @@ async def start_server(interaction: nextcord.Interaction):
 async def stop_server(interaction: nextcord.Interaction):
     await call_minestrator(interaction, "stop")
 
-@bot.slash_command(name="list_servers", description="Affiche la liste de tes serveurs MineStrator")
+@bot.slash_command(name="list_servers", description="Affiche la liste de tes serveurs")
 async def list_servers(interaction: nextcord.Interaction):
-    # WHITELIST : Vérification de l'ID ici aussi
+    # WHITELIST
     if str(interaction.user.id) not in ALLOWED_USERS:
-        await interaction.response.send_message("❌ Tu n'as pas l'autorisation d'utiliser cette commande.", ephemeral=True)
+        await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    
+    headers = {
+        "Authorization": f"Bearer {MINE_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    
+    # Tentative avec /me/servers
+    url = "https://api.minestrator.com/v1/me/servers"
+    
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        
+        if r.status_code == 200:
+            await interaction.followup.send(f"✅ Succès ! Voici la réponse : {r.text[:1000]}", ephemeral=True)
+        else:
+            # Cette fois, on affiche le code ET le texte renvoyé par l'API
+            await interaction.followup.send(f"❌ Erreur {r.status_code}. Texte de l'API : {r.text}", ephemeral=True)
+            
+    except Exception as e:
+        await interaction.followup.send(f"⚠️ Erreur de connexion : {str(e)}", ephemeral=True)
         return
 
     await interaction.response.defer(ephemeral=True)
