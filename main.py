@@ -36,17 +36,18 @@ async def call_power(interaction, signal):
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        "Accept": "application/json"
     }
     data = {"signal": signal}
     url = f"{BASE_URL}/power"
     try:
         r = requests.post(url, headers=headers, json=data, timeout=30)
-        print(f"[{signal.upper()}] Code: {r.status_code} | Réponse: {r.text[:400]}")
+        print(f"[{signal.upper()}] Status: {r.status_code} | Body: {r.text[:500]}")
         if r.status_code in (200, 204):
-            await interaction.followup.send(f"Commande **{signal}** envoyée avec succès.")
+            await interaction.followup.send(f"✅ Commande **{signal}** envoyée.")
         else:
-            await interaction.followup.send(f"Échec {signal}: {r.status_code} - {r.text[:300]}")
+            await interaction.followup.send(f"❌ Échec {signal}: {r.status_code}\n{r.text[:400]}")
     except Exception as e:
         await interaction.followup.send(f"Erreur réseau {signal}: {str(e)}")
 
