@@ -1,5 +1,4 @@
 nextcord
-requests
 Flask
 selenium
-webdriver-manager
+undetected-chromedriver
