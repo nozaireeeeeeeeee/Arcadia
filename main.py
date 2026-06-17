@@ -1,63 +1,53 @@
 import os
 import threading
-import datetime
 import requests
 from flask import Flask
 import nextcord
 from nextcord.ext import commands
 
 # 1. Configuration
-intents = nextcord.Intents.default()
-bot = commands.Bot(intents=intents)
-
+bot = commands.Bot(intents=nextcord.Intents.default())
 TOKEN = os.environ.get("DISCORD_TOKEN")
-SERVER_ID = os.environ.get("SERVER_ID")
-ALLOWED_USERS = os.environ.get("ALLOWED_USERS", "").split(",")
 MINESTRATOR_TOKEN = os.environ.get("MINESTRATOR_TOKEN")
+SERVER_ID = os.environ.get("SERVER_ID")
 
-# 2. Serveur Web (Keep-Alive pour Railway)
+# 2. Serveur Web
 app = Flask('')
 @app.route('/')
-def home():
-    return "Bot actif"
+def home(): return "Bot Actif"
+def run_web_server(): app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
 
-def run_web_server():
-    port = int(os.environ.get("PORT", 8080))
-    app.run(host='0.0.0.0', port=port)
-
-# 3. Fonction API principale
+# 3. Fonction API (URL corrigée pour MineStrator)
 def api_worker(action, server_id, token):
+    # L'API MineStrator utilise souvent cette racine
+    base_url = "https://api.minestrator.com"
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    base_urls = [f"https://api.minestrator.com/v1/server/{server_id}", f"https://api.minestrator.com/v1/serveur/{server_id}"]
     
-    for url in base_urls:
-        if action == "statut":
-            res = requests.get(url, headers=headers, timeout=5)
-            if res.status_code == 200: return f"Statut : {res.json().get('status', 'inconnu')}"
-        elif action in ["start", "stop"]:
-            res = requests.post(f"{url}/action", headers=headers, json={"action": action}, timeout=5)
-            if res.status_code in [200, 201, 204]: return f"Action {action} réussie."
-    
-    return "Erreur 404 : Serveur introuvable. Utilise /debug."
+    try:
+        if action == "debug":
+            # On tente de lister les serveurs à la racine de la v1
+            res = requests.get(f"{base_url}/v1/servers", headers=headers, timeout=10)
+            return f"Code {res.status_code}: {res.text[:1000]}"
+            
+        elif action == "statut":
+            res = requests.get(f"{base_url}/v1/server/{server_id}", headers=headers, timeout=5)
+            if res.status_code == 200: return f"Statut : {res.json().get('status')}"
+            return f"Erreur {res.status_code}"
+
+    except Exception as e: return f"Erreur : {str(e)}"
 
 # 4. Commandes
+@bot.slash_command(name="debug")
+async def debug(interaction: nextcord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    res = api_worker("debug", "", MINESTRATOR_TOKEN)
+    await interaction.followup.send(f"```json\n{res}\n```", ephemeral=True)
+
 @bot.slash_command(name="statut")
 async def statut(interaction: nextcord.Interaction):
     await interaction.response.defer()
     res = api_worker("statut", SERVER_ID, MINESTRATOR_TOKEN)
     await interaction.followup.send(res)
-
-@bot.slash_command(name="debug", description="Affiche tes serveurs")
-async def debug_server(interaction: nextcord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    headers = {"Authorization": f"Bearer {MINESTRATOR_TOKEN}", "Accept": "application/json"}
-    try:
-        response = requests.get("https://api.minestrator.com/v1/servers", headers=headers, timeout=10)
-        # On utilise une chaîne plus simple pour éviter l'erreur de syntaxe
-        texte = "Réponse API :\n" + str(response.text[:1900])
-        await interaction.followup.send(f"```json\n{texte}\n```", ephemeral=True)
-    except Exception as e:
-        await interaction.followup.send(f"Erreur : {e}", ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
