@@ -166,6 +166,31 @@ async def status_server(interaction: nextcord.Interaction):
 async def list_servers(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "list_servers")
 
+# Commande de debug pour afficher la liste de tes serveurs et leurs IDs
+@bot.slash_command(name="debug", description="Affiche la liste de tes serveurs pour trouver le bon ID")
+async def debug_server(interaction: nextcord.Interaction):
+    if str(interaction.user.id) not in ALLOWED_USERS:
+        await interaction.response.send_message("❌ Accès refusé.", ephemeral=True)
+        return
+        
+    await interaction.response.defer(ephemeral=True)
+    
+    headers = {"Authorization": f"Bearer {MINESTRATOR_TOKEN}", "Accept": "application/json"}
+    try:
+        # On interroge l'API pour lister TOUS les serveurs associés au token
+        response = requests.get("https://api.minestrator.com/v1/servers", headers=headers, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            # On formate la réponse pour qu'elle soit lisible sur Discord
+            res_text = str(data)[:1900] # Limite de caractères Discord
+            await interaction.followup.send(f"📋 **Voici ce que l'API renvoie :**\n```json\n{res_text}\n```", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Erreur API : {response.status_code} - {response.text}", ephemeral=True)
+            
+    except Exception as e:
+        await interaction.followup.send(f"❌ Erreur : {str(e)}", ephemeral=True)
+
 @bot.slash_command(name="log", description="Télécharge les fichiers de log")
 async def get_bot_logs(interaction: nextcord.Interaction):
     if str(interaction.user.id) not in ALLOWED_USERS:
