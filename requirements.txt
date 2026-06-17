@@ -1,3 +1,5 @@
 nextcord
-flask
 requests
+Flask
+selenium
+webdriver-manager
