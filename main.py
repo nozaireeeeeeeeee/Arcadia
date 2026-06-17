@@ -25,7 +25,7 @@ MINE_TOKEN = os.environ.get("MINESTRATOR_TOKEN")
 SERVER_ID = os.environ.get("SERVER_ID")
 ALLOWED_USERS = os.environ.get("ALLOWED_USERS", "").split(",")
 
-# Configuration des headers avec "User-Agent" pour tromper Nginx
+# Configuration des headers avec "User-Agent" pour contourner Nginx
 def get_headers():
     return {
         "Authorization": f"Bearer {MINE_TOKEN}",
@@ -77,7 +77,44 @@ async def start_server(interaction: nextcord.Interaction):
 async def stop_server(interaction: nextcord.Interaction):
     await call_minestrator(interaction, "stop")
 
-@bot.slash_command(name="list_servers", description="Affiche tes serveurs")
+@bot.slash_command(name="statut", description="Affiche le statut en temps réel du serveur")
+async def server_status(interaction: nextcord.Interaction):
+    if str(interaction.user.id) not in ALLOWED_USERS:
+        await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    headers = get_headers()
+    
+    urls_to_try = [
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}",
+        f"https://api.minestrator.com/v1/servers/{SERVER_ID}",
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}/status"
+    ]
+    
+    for url in urls_to_try:
+        try:
+            r = requests.get(url, headers=headers, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                status = str(data.get('status', 'Inconnu')).lower()
+                
+                # Choix de l'émoji selon la réponse de MineStrator
+                if status in ["online", "en ligne", "started", "running"]:
+                    emoji = "🟢"
+                elif status in ["offline", "éteint", "stopped", "off"]:
+                    emoji = "🔴"
+                else:
+                    emoji = "🟠" # Pour "starting" ou "stopping"
+                
+                await interaction.followup.send(f"{emoji} **Statut actuel :** {status.upper()}", ephemeral=True)
+                return
+        except Exception:
+            continue
+            
+    await interaction.followup.send(f"❌ Impossible de récupérer le statut. Nginx ou l'API MineStrator bloque la requête.", ephemeral=True)
+
+@bot.slash_command(name="list_servers", description="Affiche les détails complets de ton serveur")
 async def list_servers(interaction: nextcord.Interaction):
     if str(interaction.user.id) not in ALLOWED_USERS:
         await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
