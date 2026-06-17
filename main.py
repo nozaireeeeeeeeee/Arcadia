@@ -63,7 +63,7 @@ async def on_application_command_error(interaction: nextcord.Interaction, except
     except Exception:
         pass
 
-# 4. Traitement des requêtes vers l'API de MineStrator
+# 4. Traitement des requêtes vers l'API de MineStrator (Version Corrigée Anti-404)
 def api_worker(action, server_id, token):
     if not token or token == "None":
         write_mine_log("❌ ERREUR : La variable MINESTRATOR_TOKEN n'est pas configurée sur Railway !")
@@ -77,18 +77,24 @@ def api_worker(action, server_id, token):
         "Accept": "application/json"
     }
     
-    # URL de base de l'API officielle pour ton instance
-    base_url = f"https://api.minestrator.com/v1/instance/{server_id}"
+    # URL de base par défaut
+    base_url = f"https://api.minestrator.com/v1/server/{server_id}"
 
     try:
         # CAS 1 : Lecture du statut ou détails du serveur
         if action in ["statut", "list_servers"]:
             response = requests.get(base_url, headers=headers, timeout=10)
-            write_mine_log(f"Réponse API Statut reçue Code: {response.status_code}")
+            write_mine_log(f"Réponse API Statut (Route principale) Code: {response.status_code}")
             
+            # Système de secours automatique si la route principale fait un 404
+            if response.status_code == 404:
+                write_mine_log("Route /server/ introuvable (404), tentative de secours sur /serveur/...")
+                base_url = f"https://api.minestrator.com/v1/serveur/{server_id}"
+                response = requests.get(base_url, headers=headers, timeout=10)
+                write_mine_log(f"Réponse API Statut (Route de secours) Code: {response.status_code}")
+
             if response.status_code == 200:
                 data = response.json()
-                # Extraction du statut depuis le format JSON de MineStrator
                 status_raw = data.get("status", data.get("data", {}).get("status", "unknown")).lower()
                 
                 if action == "statut":
@@ -111,13 +117,19 @@ def api_worker(action, server_id, token):
 
         # CAS 2 : Actions d'alimentation (Démarrer / Arrêter)
         elif action in ["start", "stop"]:
-            action_url = f"{base_url}/action"
-            # Payload attendu par l'API MineStrator pour piloter la machine
+            action_url = f"https://api.minestrator.com/v1/server/{server_id}/action"
             payload = {"action": action}
             
             response = requests.post(action_url, headers=headers, json=payload, timeout=10)
-            write_mine_log(f"Réponse API Action [{action.upper()}] reçue Code: {response.status_code}")
+            write_mine_log(f"Réponse API Action (Route principale) Code: {response.status_code}")
             
+            # Système de secours automatique si l'action fait un 404
+            if response.status_code == 404:
+                write_mine_log("Route action principale introuvable (404), tentative sur route de secours...")
+                action_url = f"https://api.minestrator.com/v1/serveur/{server_id}/action"
+                response = requests.post(action_url, headers=headers, json=payload, timeout=10)
+                write_mine_log(f"Réponse API Action (Route de secours) Code: {response.status_code}")
+
             if response.status_code in [200, 201, 204]:
                 return f"✅ L'ordre de **{action.upper()}** a été transmis instantanément à ton serveur !"
             elif response.status_code == 401:
@@ -137,8 +149,6 @@ async def run_command_flow(interaction: nextcord.Interaction, action: str):
         return
 
     write_bot_log(f"Commande /{action} initiée par {interaction.user.name}")
-    
-    # On diffère la réponse car l'API peut mettre une demi-seconde à répondre
     await interaction.response.defer(ephemeral=(action in ["statut", "list_servers"]))
     
     def thread_target():
