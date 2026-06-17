@@ -56,13 +56,3 @@ async def debug_server(interaction: nextcord.Interaction):
         response = requests.get("https://api.minestrator.com/v1/servers", headers=headers, timeout=10)
         await interaction.followup.send(f"Réponse API :\n
 http://googleusercontent.com/immersive_entry_chip/0
-
----
-
-### 🚀 Ce que tu dois faire maintenant :
-
-1. **Copie/Colle ce code** dans ton fichier `main.py` sur GitHub et enregistre.
-2. Attends que **Railway** redémarre le bot.
-3. Va sur ton serveur Discord, tape **/debug** et **envoie-moi le résultat** (le texte qui s'affiche dans le bloc gris).
-
-Dès que j'ai ce résultat, je te donne l'ID exact à mettre dans ta variable `SERVER_ID` et tout sera réglé.
