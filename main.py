@@ -53,7 +53,7 @@ MINE_PASSWORD = os.environ.get("MINE_PASSWORD")
 
 def get_selenium_driver():
     options = uc.ChromeOptions()
-    options.add_argument("--headless")  # Obligatoire sur serveur Cloud
+    # ❌ ENLEVÉ : options.add_argument("--headless") ne doit surtout pas être mis ici !
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
@@ -62,6 +62,7 @@ def get_selenium_driver():
     # Configuration du navigateur furtif anti-Cloudflare
     driver = uc.Chrome(
         options=options, 
+        headless=True,  # ✅ C'est ICI qu'il faut activer le headless pour rester indétectable !
         browser_executable_path="/usr/bin/chromium",
         driver_executable_path="/usr/bin/chromedriver"
     )
