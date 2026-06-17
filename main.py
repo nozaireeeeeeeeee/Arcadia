@@ -28,7 +28,6 @@ def run_web_server():
 # 3. Fonction API principale
 def api_worker(action, server_id, token):
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    # On teste les deux routes courantes
     base_urls = [f"https://api.minestrator.com/v1/server/{server_id}", f"https://api.minestrator.com/v1/serveur/{server_id}"]
     
     for url in base_urls:
@@ -39,7 +38,7 @@ def api_worker(action, server_id, token):
             res = requests.post(f"{url}/action", headers=headers, json={"action": action}, timeout=5)
             if res.status_code in [200, 201, 204]: return f"Action {action} réussie."
     
-    return "Erreur 404 : Serveur introuvable. Utilise /debug pour vérifier ton ID."
+    return "Erreur 404 : Serveur introuvable. Utilise /debug."
 
 # 4. Commandes
 @bot.slash_command(name="statut")
@@ -48,11 +47,18 @@ async def statut(interaction: nextcord.Interaction):
     res = api_worker("statut", SERVER_ID, MINESTRATOR_TOKEN)
     await interaction.followup.send(res)
 
-@bot.slash_command(name="debug", description="Affiche tes serveurs pour trouver l'ID")
+@bot.slash_command(name="debug", description="Affiche tes serveurs")
 async def debug_server(interaction: nextcord.Interaction):
     await interaction.response.defer(ephemeral=True)
     headers = {"Authorization": f"Bearer {MINESTRATOR_TOKEN}", "Accept": "application/json"}
     try:
         response = requests.get("https://api.minestrator.com/v1/servers", headers=headers, timeout=10)
-        await interaction.followup.send(f"Réponse API :\n
-http://googleusercontent.com/immersive_entry_chip/0
+        # On utilise une chaîne plus simple pour éviter l'erreur de syntaxe
+        texte = "Réponse API :\n" + str(response.text[:1900])
+        await interaction.followup.send(f"```json\n{texte}\n```", ephemeral=True)
+    except Exception as e:
+        await interaction.followup.send(f"Erreur : {e}", ephemeral=True)
+
+if __name__ == "__main__":
+    threading.Thread(target=run_web_server, daemon=True).start()
+    bot.run(TOKEN)
