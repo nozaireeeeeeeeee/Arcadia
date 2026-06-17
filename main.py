@@ -64,40 +64,15 @@ async def start_server(interaction: nextcord.Interaction):
 @bot.slash_command(name="stop", description="Arrête le serveur")
 async def stop_server(interaction: nextcord.Interaction):
     await call_minestrator(interaction, "stop")
+
 @bot.slash_command(name="list_servers", description="Affiche tes serveurs")
 async def list_servers(interaction: nextcord.Interaction):
-    # 1. D'ABORD la vérification de l'autorisation
+    # 1. Vérification Whitelist en premier
     if str(interaction.user.id) not in ALLOWED_USERS:
         await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
         return
 
-    # 2. Ensuite, on prévient Discord que l'action est en cours
-    await interaction.response.defer(ephemeral=True)
-
-    # 3. Préparation de la requête
-    headers = {
-        "Authorization": f"Bearer {MINE_TOKEN}",
-        "Content-Type": "application/json"
-    }
-    
-    # 4. COLLE TON URL EXACTE ICI ENTRE LES GUILLEMETS
-    url = "https://api.minestrator.com/v1/me/servers"
-    
-    # 5. Appel API et gestion des résultats
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
-        
-        if r.status_code == 200:
-            # Ici le bot affichera la réponse brute, ce qui nous aidera à confirmer le format
-            await interaction.followup.send(f"✅ Réponse API : {r.text}", ephemeral=True)
-        else:
-            await interaction.followup.send(f"❌ Erreur {r.status_code} : {r.text}", ephemeral=True)
-            
-    except Exception as e:
-        await interaction.followup.send(f"⚠️ Erreur de connexion : {str(e)}", ephemeral=True)
-        return
-
-    # 2. Defer unique (pour éviter les erreurs d'interaction)
+    # 2. On prévient Discord qu'on travaille
     await interaction.response.defer(ephemeral=True)
     
     headers = {
@@ -105,58 +80,24 @@ async def list_servers(interaction: nextcord.Interaction):
         "Content-Type": "application/json"
     }
     
-    # Tentative avec /me/servers (plus probable pour lister tes serveurs)
-    url = "https://api.minestrator.com/v1/me/servers"
+    # 3. On utilise l'URL de base qui fonctionne pour les autres commandes
+    url = f"https://api.minestrator.com/v1/servers/{SERVER_ID}"
     
     try:
         r = requests.get(url, headers=headers, timeout=15)
         
         if r.status_code == 200:
             data = r.json()
-            # Construction du message
-            msg = "📋 **Tes serveurs trouvés :**\n"
-            # On vérifie si c'est une liste ou un dict
-            servers = data if isinstance(data, list) else data.get("servers", [])
-            
-            if not servers:
-                msg = "📋 Aucun serveur trouvé sous ce compte."
-            else:
-                for s in servers:
-                    msg += f"• {s.get('name', 'Serveur')} | ID : `{s.get('id', 'N/A')}`\n"
-            
+            # Affiche les informations de ton serveur
+            msg = f"📋 **Informations du serveur :**\n"
+            msg += f"• **Nom :** {data.get('name', 'Inconnu')}\n"
+            msg += f"• **ID :** {data.get('id', 'Inconnu')}\n"
+            msg += f"• **Statut :** {data.get('status', 'Inconnu')}\n"
+            msg += f"• **IP :** {data.get('ip', 'Inconnu')}:{data.get('port', 'Inconnu')}\n"
             await interaction.followup.send(msg, ephemeral=True)
-            
-        else:
-            # Si ça échoue encore, on affiche la réponse exacte pour comprendre
-            await interaction.followup.send(f"❌ Erreur {r.status_code} : {r.text}", ephemeral=True)
-            
-    except Exception as e:
-        await interaction.followup.send(f"⚠️ Erreur : {str(e)}", ephemeral=True)
-        return
-
-    # 2. On "defer" une seule fois, UNIQUEMENT si l'utilisateur est autorisé
-    await interaction.response.defer(ephemeral=True)
-    
-    headers = {"Authorization": f"Bearer {MINE_TOKEN}", "Content-Type": "application/json"}
-    url = "https://api.minestrator.com/v1/me/servers"
-    
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
-        if r.status_code == 200:
-            data = r.json()
-            servers = data if isinstance(data, list) else data.get("servers", [])
-            
-            if not servers:
-                await interaction.followup.send("📋 Aucun serveur trouvé.", ephemeral=True)
-            else:
-                msg = "📋 **Tes serveurs trouvés :**\n"
-                for s in servers:
-                    s_id = s.get("id") or "Inconnu"
-                    s_name = s.get("name") or "Serveur Minecraft"
-                    msg += f"• {s_name} | ID : `{s_id}`\n"
-                await interaction.followup.send(msg, ephemeral=True)
         else:
             await interaction.followup.send(f"❌ Erreur {r.status_code} : {r.text}", ephemeral=True)
+            
     except Exception as e:
         await interaction.followup.send(f"⚠️ Erreur de connexion : {str(e)}", ephemeral=True)
 
