@@ -25,6 +25,14 @@ MINE_TOKEN = os.environ.get("MINESTRATOR_TOKEN")
 SERVER_ID = os.environ.get("SERVER_ID")
 ALLOWED_USERS = os.environ.get("ALLOWED_USERS", "").split(",")
 
+# Configuration des headers avec "User-Agent" pour tromper Nginx
+def get_headers():
+    return {
+        "Authorization": f"Bearer {MINE_TOKEN}",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+
 @bot.event
 async def on_ready():
     print(f"✅ Bot connecté : {bot.user}")
@@ -41,9 +49,8 @@ async def call_minestrator(interaction: nextcord.Interaction, action: str):
         return
 
     await interaction.response.defer()
-    headers = {"Authorization": f"Bearer {MINE_TOKEN}", "Content-Type": "application/json"}
+    headers = get_headers()
     
-    # Le bot va tester ces 3 URLs de MineStrator l'une après l'autre
     urls_to_try = [
         f"https://api.minestrator.com/v1/server/{SERVER_ID}/{action}",
         f"https://api.minestrator.com/v1/servers/{SERVER_ID}/{action}",
@@ -57,9 +64,9 @@ async def call_minestrator(interaction: nextcord.Interaction, action: str):
                 await interaction.followup.send(f"🟢 Commande **{action.upper()}** validée !")
                 return
         except Exception:
-            continue # Si ça échoue (404), on passe à l'URL suivante
+            continue
             
-    await interaction.followup.send("❌ Erreur 404 : MineStrator n'a accepté aucune des URLs. Vérifie que ton `SERVER_ID` dans Railway est correct.")
+    await interaction.followup.send(f"❌ Erreur : MineStrator refuse l'accès (403/404). Vérifie les permissions de ta clé API principale.")
 
 # 4. Commandes Slash
 @bot.slash_command(name="start", description="Démarre le serveur")
@@ -77,9 +84,8 @@ async def list_servers(interaction: nextcord.Interaction):
         return
 
     await interaction.response.defer(ephemeral=True)
-    headers = {"Authorization": f"Bearer {MINE_TOKEN}", "Content-Type": "application/json"}
+    headers = get_headers()
     
-    # Le bot va tester ces 3 structures pour récupérer les infos
     urls_to_try = [
         f"https://api.minestrator.com/v1/server/{SERVER_ID}",
         f"https://api.minestrator.com/v1/servers/{SERVER_ID}",
@@ -100,7 +106,7 @@ async def list_servers(interaction: nextcord.Interaction):
         except Exception:
             continue
             
-    await interaction.followup.send("❌ Erreur 404 : Impossible de trouver ton serveur. Vérifie ton `SERVER_ID` et ton `MINESTRATOR_TOKEN` dans Railway.", ephemeral=True)
+    await interaction.followup.send(f"❌ Impossible de récupérer les détails. Nginx ou l'API MineStrator bloque la requête.", ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
