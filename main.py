@@ -2,10 +2,13 @@ import os
 import threading
 import datetime
 import time
-import requests
 from flask import Flask
 import nextcord
 from nextcord.ext import commands
+
+# Retour à Selenium Furtif
+import undetected_chromedriver as uc
+from selenium.webdriver.common.by import By
 
 # 1. Moteur de double journalisation
 def write_bot_log(message):
@@ -17,7 +20,7 @@ def write_bot_log(message):
 
 def write_mine_log(message):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    line = f"[{timestamp}] [API_MINESTRATOR] {message}\n"
+    line = f"[{timestamp}] [SELENIUM] {message}\n"
     print(line.strip())
     with open("log_minestrator.txt", "a", encoding="utf-8") as f:
         f.write(line)
@@ -27,12 +30,12 @@ for filename in ["log_bot.txt", "log_minestrator.txt"]:
         with open(filename, "w", encoding="utf-8") as f:
             f.write(f"--- Création du fichier le {datetime.datetime.now()} ---\n")
 
-# 2. Serveur Web pour Railway (Keep-Alive)
+# 2. Serveur Web pour Railway
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot MineStrator API actif (Zéro Selenium) !"
+    return "Bot MineStrator Furtif (Rotation Proxies) Actif !"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -45,17 +48,55 @@ bot = commands.Bot(intents=intents)
 TOKEN = os.environ.get("DISCORD_TOKEN")
 SERVER_ID = os.environ.get("SERVER_ID")
 ALLOWED_USERS = os.environ.get("ALLOWED_USERS", "").split(",")
-MINESTRATOR_TOKEN = os.environ.get("MINESTRATOR_TOKEN")
+# Récupération des identifiants (Assure-toi de les remettre/laisser sur Railway !)
+MINE_EMAIL = os.environ.get("MINE_EMAIL")
+MINE_PASSWORD = os.environ.get("MINE_PASSWORD")
+
+# 🌐 LISTE DE PROXIES FRAIS ET UNIQUEMENT EUROPÉENS (SÉCURITÉ)
+# Si l'un échoue, le script testera automatiquement le suivant.
+PROXY_POOL = [
+    "http://94.156.114.132:524",   # Allemagne
+    "http://45.84.222.25:1080",    # Pays-Bas
+    "http://138.124.113.102:7443", # Pays-Bas 2
+    "http://2.26.87.216:1080"      # Finlande
+]
+
+def get_selenium_driver(proxy_url):
+    options = uc.ChromeOptions()
+    
+    # Injection du proxy sélectionné
+    options.add_argument(f'--proxy-server={proxy_url}')
+    
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    options.add_argument("--lang=fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
+    options.add_argument("window-size=1920,1080")
+    
+    driver = uc.Chrome(
+        options=options, 
+        headless=True,
+        browser_executable_path="/usr/bin/chromium",
+        driver_executable_path="/usr/bin/chromedriver"
+    )
+    
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    })
+    
+    return driver
 
 @bot.event
 async def on_ready():
+    bot.add_all_application_commands()
     write_bot_log(f"Bot connecté sous le nom : {bot.user}")
 
 @bot.event
 async def on_application_command_error(interaction: nextcord.Interaction, exception):
     write_bot_log(f"Crash commande /{interaction.application_command.name} | Erreur : {str(exception)}")
     try:
-        msg = "❌ Le bot a rencontré une erreur. Utilise `/log` pour télécharger les rapports."
+        msg = "❌ Le bot a rencontré une erreur. Utilise `/log` pour voir les rapports."
         if interaction.response.is_done():
             await interaction.followup.send(msg, ephemeral=True)
         else:
@@ -63,88 +104,86 @@ async def on_application_command_error(interaction: nextcord.Interaction, except
     except Exception:
         pass
 
-# 4. Traitement des requêtes vers l'API de MineStrator (Version Corrigée Anti-404)
-def api_worker(action, server_id, token):
-    if not token or token == "None":
-        write_mine_log("❌ ERREUR : La variable MINESTRATOR_TOKEN n'est pas configurée sur Railway !")
-        return "❌ Erreur : Le Token d'API MineStrator est introuvable dans tes variables Railway."
+# 4. Worker Selenium avec boucle de secours sur les Proxies
+def selenium_worker(action, server_id, email, password):
+    if not email or not password or email == "None":
+        write_mine_log("❌ ERREUR : Les variables MINE_EMAIL ou MINE_PASSWORD ne sont pas configurées sur Railway !")
+        return "❌ Erreur : Identifiants de connexion manquants sur Railway."
 
-    write_mine_log(f"Envoi de la requête API pour l'action : [{action.upper()}]")
-    
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
-    
-    # URL de base par défaut
-    base_url = f"https://api.minestrator.com/v1/server/{server_id}"
+    driver = None
+    success = False
+    result_message = ""
 
-    try:
-        # CAS 1 : Lecture du statut ou détails du serveur
-        if action in ["statut", "list_servers"]:
-            response = requests.get(base_url, headers=headers, timeout=10)
-            write_mine_log(f"Réponse API Statut (Route principale) Code: {response.status_code}")
+    # Parcourt la liste des proxies disponibles jusqu'à ce qu'un fonctionne
+    for current_proxy in PROXY_POOL:
+        write_mine_log(f"Tentative de connexion via le proxy : {current_proxy}")
+        try:
+            driver = get_selenium_driver(current_proxy)
             
-            # Système de secours automatique si la route principale fait un 404
-            if response.status_code == 404:
-                write_mine_log("Route /server/ introuvable (404), tentative de secours sur /serveur/...")
-                base_url = f"https://api.minestrator.com/v1/serveur/{server_id}"
-                response = requests.get(base_url, headers=headers, timeout=10)
-                write_mine_log(f"Réponse API Statut (Route de secours) Code: {response.status_code}")
-
-            if response.status_code == 200:
-                data = response.json()
-                status_raw = data.get("status", data.get("data", {}).get("status", "unknown")).lower()
-                
-                if action == "statut":
-                    if status_raw in ["on", "online", "started", "running"]:
-                        return f"🟢 **EN LIGNE**"
-                    elif status_raw in ["off", "offline", "stopped"]:
-                        return f"🔴 **ÉTEINT**"
-                    else:
-                        return f"🟠 **STATUT : {status_raw.upper()}** (En cours de changement)"
-                
-                elif action == "list_servers":
-                    name = data.get("name", data.get("data", {}).get("name", "Serveur Minecraft"))
-                    slots = data.get("slots", data.get("data", {}).get("slots", "N/A"))
-                    return f"📋 **Détails de ton instance MineStrator :**\n• **Nom :** `{name}`\n• **ID d'instance :** `{server_id}`\n• **Statut :** `{status_raw.upper()}`\n• **Slots :** `{slots}`\n• **Connexion :** Directe par API Sécurisée ⚡"
+            write_mine_log("Navigation furtive vers la page de login...")
+            driver.get("https://panel.minestrator.com/login")
+            time.sleep(7) # Laisse le temps d'esquiver Cloudflare
             
-            elif response.status_code == 401:
-                return "❌ Erreur : Ton `MINESTRATOR_TOKEN` est invalide ou a expiré. Régénère-le sur ton panel."
-            else:
-                return f"❌ L'API a répondu avec une erreur {response.status_code}."
+            # Vérification : si on est bloqué sur une page d'erreur Chrome ou Nginx, on force l'erreur pour changer de proxy
+            if "403" in driver.title or "inaccessible" in driver.title.lower() or "panel.minestrator.com" not in driver.title.lower():
+                raise Exception(f"Proxy instable ou bloqué (Titre détecté: '{driver.title}')")
 
-        # CAS 2 : Actions d'alimentation (Démarrer / Arrêter)
-        elif action in ["start", "stop"]:
-            action_url = f"https://api.minestrator.com/v1/server/{server_id}/action"
-            payload = {"action": action}
+            write_mine_log(f"Formulaire trouvé. Tentative d'identification pour : {email}")
+            driver.find_element(By.NAME, "email").send_keys(email)
+            driver.find_element(By.NAME, "password").send_keys(password)
             
-            response = requests.post(action_url, headers=headers, json=payload, timeout=10)
-            write_mine_log(f"Réponse API Action (Route principale) Code: {response.status_code}")
+            submit_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
+            submit_btn.click()
+            time.sleep(5)
             
-            # Système de secours automatique si l'action fait un 404
-            if response.status_code == 404:
-                write_mine_log("Route action principale introuvable (404), tentative sur route de secours...")
-                action_url = f"https://api.minestrator.com/v1/serveur/{server_id}/action"
-                response = requests.post(action_url, headers=headers, json=payload, timeout=10)
-                write_mine_log(f"Réponse API Action (Route de secours) Code: {response.status_code}")
+            target_url = f"https://panel.minestrator.com/instance/{server_id}"
+            write_mine_log(f"Navigation vers l'instance : {target_url}")
+            driver.get(target_url)
+            time.sleep(5)
+            
+            page_text = driver.page_source.lower()
+            
+            if action == "statut":
+                if "en ligne" in page_text or "online" in page_text or "started" in page_text:
+                    result_message = "🟢 EN LIGNE"
+                elif "éteint" in page_text or "offline" in page_text or "stopped" in page_text:
+                    result_message = "🔴 ÉTEINT"
+                else:
+                    result_message = "🟠 EN COURS DE DÉMARRAGE / ARRÊT"
+                    
+            elif action == "list_servers":
+                status_info = "🟢 EN LIGNE" if ("en ligne" in page_text or "online" in page_text) else "🔴 ÉTEINT"
+                result_message = f"📋 **Détails de ton serveur MineStrator :**\n• **ID de l'instance :** `{server_id}`\n• **Statut actuel :** {status_info}\n• **Réseau :** Masqué par tunnel Proxy"
 
-            if response.status_code in [200, 201, 204]:
-                return f"✅ L'ordre de **{action.upper()}** a été transmis instantanément à ton serveur !"
-            elif response.status_code == 401:
-                return "❌ Erreur d'authentification : Ton token d'API est incorrect."
-            else:
-                return f"❌ Impossible d'exécuter l'action. Code API : {response.status_code}"
+            elif action in ["start", "stop"]:
+                keyword = "Démarrer" if action == "start" else "Arrêter"
+                btn = driver.find_element(By.XPATH, f"//button[contains(text(), '{keyword}')] | //a[contains(text(), '{keyword}')]")
+                btn.click()
+                time.sleep(2)
+                result_message = f"✅ L'action navigateur **{action.upper()}** a été transmise au panel !"
 
-    except Exception as e:
-        write_mine_log(f"❌ CRASH INTERNE DE L'API : {str(e)}")
-        return f"❌ Échec de la connexion avec l'API MineStrator. (Vérifie tes logs avec `/log`)"
+            success = True
+            break # On a réussi, on sort de la boucle de proxies !
+
+        except Exception as e:
+            write_mine_log(f"⚠️ Échec avec le proxy {current_proxy} : {str(e)}")
+            if driver:
+                driver.quit()
+                driver = None
+            continue # Le proxy a échoué, la boucle passe au suivant automatique
+
+    if driver:
+        driver.quit()
+        write_mine_log("Navigateur Chrome fermé proprement.")
+
+    if success:
+        return result_message
+    else:
+        return "❌ Tous les proxies configurés ont échoué ou ont été rejetés. Réessaye dans quelques instants."
 
 # 5. Connecteurs de Commandes Discord Slash
 async def run_command_flow(interaction: nextcord.Interaction, action: str):
     if str(interaction.user.id) not in ALLOWED_USERS:
-        write_bot_log(f"Alerte sécurité : /{action} refusé pour l'utilisateur {interaction.user.name}")
         await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
         return
 
@@ -152,28 +191,28 @@ async def run_command_flow(interaction: nextcord.Interaction, action: str):
     await interaction.response.defer(ephemeral=(action in ["statut", "list_servers"]))
     
     def thread_target():
-        res = api_worker(action, SERVER_ID, MINESTRATOR_TOKEN)
+        res = selenium_worker(action, SERVER_ID, MINE_EMAIL, MINE_PASSWORD)
         bot.loop.create_task(interaction.followup.send(res))
         
     threading.Thread(target=thread_target, daemon=True).start()
 
-@bot.slash_command(name="start", description="Démarre instantanément le serveur via l'API MineStrator")
+@bot.slash_command(name="start", description="Démarre le serveur Minecraft via simulation proxy")
 async def start_server(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "start")
 
-@bot.slash_command(name="stop", description="Arrête instantanément le serveur via l'API MineStrator")
+@bot.slash_command(name="stop", description="Arrête le serveur Minecraft via simulation proxy")
 async def stop_server(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "stop")
 
-@bot.slash_command(name="statut", description="Affiche le statut en direct de la machine via l'API")
+@bot.slash_command(name="statut", description="Affiche le statut en direct de la machine")
 async def status_server(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "statut")
 
-@bot.slash_command(name="list_servers", description="Affiche les configurations de ton instance via l'API")
+@bot.slash_command(name="list_servers", description="Affiche les configurations de ton instance")
 async def list_servers(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "list_servers")
 
-@bot.slash_command(name="log", description="Télécharge instantanément les fichiers de log du système")
+@bot.slash_command(name="log", description="Télécharge instantanément les deux boîtes noires")
 async def get_bot_logs(interaction: nextcord.Interaction):
     if str(interaction.user.id) not in ALLOWED_USERS:
         await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
@@ -187,13 +226,9 @@ async def get_bot_logs(interaction: nextcord.Interaction):
         files_to_send.append(nextcord.File("log_minestrator.txt"))
 
     if files_to_send:
-        await interaction.followup.send(
-            content="📋 **Voici l'extraction complète de tes logs :**",
-            files=files_to_send,
-            ephemeral=True
-        )
+        await interaction.followup.send(content="📋 **Logs :**", files=files_to_send, ephemeral=True)
     else:
-        await interaction.followup.send("⚠️ Aucun fichier de log généré pour le moment.", ephemeral=True)
+        await interaction.followup.send("⚠️ Aucun log.", ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
