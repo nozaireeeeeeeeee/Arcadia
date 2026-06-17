@@ -53,19 +53,29 @@ MINE_PASSWORD = os.environ.get("MINE_PASSWORD")
 
 def get_selenium_driver():
     options = uc.ChromeOptions()
-    # ❌ ENLEVÉ : options.add_argument("--headless") ne doit surtout pas être mis ici !
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
+    
+    # 🕵️ CAMOUFLAGE : On force un vrai User-Agent de navigateur de bureau (Windows 10 / Chrome)
+    options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+    
+    # On fait croire au serveur que le navigateur est configuré en France
+    options.add_argument("--lang=fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7")
     options.add_argument("window-size=1920,1080")
     
-    # Configuration du navigateur furtif anti-Cloudflare
     driver = uc.Chrome(
         options=options, 
-        headless=True,  # ✅ C'est ICI qu'il faut activer le headless pour rester indétectable !
+        headless=True,  # Gestion native du headless par undetected-chromedriver
         browser_executable_path="/usr/bin/chromium",
         driver_executable_path="/usr/bin/chromedriver"
     )
+    
+    # On injecte un script pour détruire la variable 'navigator.webdriver' qui trahit le robot
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+        "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+    })
+    
     return driver
 
 @bot.event
