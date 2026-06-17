@@ -5,7 +5,7 @@ import nextcord
 from nextcord.ext import commands
 import requests
 
-# 1. Serveur Web pour la compatibilité Railway
+# 1. Serveur Web pour Railway
 app = Flask('')
 
 @app.route('/')
@@ -34,27 +34,32 @@ async def on_ready():
     except Exception as e:
         print(f"⚠️ Erreur sync : {e}")
 
-# 3. Fonction d'appel API (Start / Stop)
+# 3. Fonction d'appel API automatique (Start / Stop)
 async def call_minestrator(interaction: nextcord.Interaction, action: str):
-    # Vérification Whitelist
     if str(interaction.user.id) not in ALLOWED_USERS:
         await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
         return
 
-    # On prévient Discord qu'on travaille (defer)
     await interaction.response.defer()
-    
     headers = {"Authorization": f"Bearer {MINE_TOKEN}", "Content-Type": "application/json"}
-    url = f"https://api.minestrator.com/v1/servers/{SERVER_ID}/{action}"
+    
+    # Le bot va tester ces 3 URLs de MineStrator l'une après l'autre
+    urls_to_try = [
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}/{action}",
+        f"https://api.minestrator.com/v1/servers/{SERVER_ID}/{action}",
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}/action/{action}"
+    ]
 
-    try:
-        r = requests.post(url, headers=headers, timeout=15)
-        if r.status_code in (200, 204, 201):
-            await interaction.followup.send(f"🟢 Commande **{action.upper()}** validée !")
-        else:
-            await interaction.followup.send(f"❌ Erreur {r.status_code} : {r.text}")
-    except Exception as e:
-        await interaction.followup.send(f"⚠️ Erreur : {str(e)}")
+    for url in urls_to_try:
+        try:
+            r = requests.post(url, headers=headers, timeout=5)
+            if r.status_code in (200, 204, 201):
+                await interaction.followup.send(f"🟢 Commande **{action.upper()}** validée !")
+                return
+        except Exception:
+            continue # Si ça échoue (404), on passe à l'URL suivante
+            
+    await interaction.followup.send("❌ Erreur 404 : MineStrator n'a accepté aucune des URLs. Vérifie que ton `SERVER_ID` dans Railway est correct.")
 
 # 4. Commandes Slash
 @bot.slash_command(name="start", description="Démarre le serveur")
@@ -67,39 +72,35 @@ async def stop_server(interaction: nextcord.Interaction):
 
 @bot.slash_command(name="list_servers", description="Affiche tes serveurs")
 async def list_servers(interaction: nextcord.Interaction):
-    # 1. Vérification Whitelist en premier
     if str(interaction.user.id) not in ALLOWED_USERS:
         await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
         return
 
-    # 2. On prévient Discord qu'on travaille
     await interaction.response.defer(ephemeral=True)
+    headers = {"Authorization": f"Bearer {MINE_TOKEN}", "Content-Type": "application/json"}
     
-    headers = {
-        "Authorization": f"Bearer {MINE_TOKEN}", 
-        "Content-Type": "application/json"
-    }
+    # Le bot va tester ces 3 structures pour récupérer les infos
+    urls_to_try = [
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}",
+        f"https://api.minestrator.com/v1/servers/{SERVER_ID}",
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}/status"
+    ]
     
-    # 3. On utilise l'URL de base qui fonctionne pour les autres commandes
-    url = f"https://api.minestrator.com/v1/servers/{SERVER_ID}"
-    
-    try:
-        r = requests.get(url, headers=headers, timeout=15)
-        
-        if r.status_code == 200:
-            data = r.json()
-            # Affiche les informations de ton serveur
-            msg = f"📋 **Informations du serveur :**\n"
-            msg += f"• **Nom :** {data.get('name', 'Inconnu')}\n"
-            msg += f"• **ID :** {data.get('id', 'Inconnu')}\n"
-            msg += f"• **Statut :** {data.get('status', 'Inconnu')}\n"
-            msg += f"• **IP :** {data.get('ip', 'Inconnu')}:{data.get('port', 'Inconnu')}\n"
-            await interaction.followup.send(msg, ephemeral=True)
-        else:
-            await interaction.followup.send(f"❌ Erreur {r.status_code} : {r.text}", ephemeral=True)
+    for url in urls_to_try:
+        try:
+            r = requests.get(url, headers=headers, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                msg = f"📋 **Informations du serveur :**\n"
+                msg += f"• **Nom :** {data.get('name', 'Inconnu')}\n"
+                msg += f"• **ID :** {data.get('id', SERVER_ID)}\n"
+                msg += f"• **Statut :** {data.get('status', 'Inconnu')}\n"
+                await interaction.followup.send(msg, ephemeral=True)
+                return
+        except Exception:
+            continue
             
-    except Exception as e:
-        await interaction.followup.send(f"⚠️ Erreur de connexion : {str(e)}", ephemeral=True)
+    await interaction.followup.send("❌ Erreur 404 : Impossible de trouver ton serveur. Vérifie ton `SERVER_ID` et ton `MINESTRATOR_TOKEN` dans Railway.", ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
