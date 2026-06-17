@@ -55,7 +55,7 @@ def get_selenium_driver():
     options = uc.ChromeOptions()
     
     # 🌐 TEST AVEC LES PAYS-BAS + AJOUT DE HTTP://
-    PROXY = "http://45.84.222.25:1080"  
+    PROXY = "http://2.26.87.216:1080"  
     options.add_argument(f'--proxy-server={PROXY}')
     
     # Reste de la configuration (ne change rien d'autre)
