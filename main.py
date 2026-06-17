@@ -15,7 +15,6 @@ def add_log(category, message):
     log_line = f"[{timestamp}] [{category.upper()}] {message}"
     print(log_line) # Reste visible sur Railway
     BOT_LOGS.append(log_line)
-    # On garde uniquement les 50 dernières lignes pour ne pas saturer la RAM
     if len(BOT_LOGS) > 50:
         BOT_LOGS.pop(0)
 
@@ -61,9 +60,8 @@ async def on_application_command_error(interaction: nextcord.Interaction, except
     error_msg = f"La commande /{interaction.application_command.name} a crashé. Raison : {str(exception)}"
     add_log("crash", error_msg)
     
-    # Répondre discrètement à l'utilisateur pour ne pas le laisser bloqué
     try:
-        msg = "❌ Une erreur interne est survenue. Tape `/og` pour voir le rapport d'erreur."
+        msg = "❌ Une erreur interne est survenue. Tape `/log` pour voir le rapport d'erreur."
         if interaction.response.is_done():
             await interaction.followup.send(msg, ephemeral=True)
         else:
@@ -100,7 +98,7 @@ async def call_minestrator(interaction: nextcord.Interaction, action: str):
             add_log("error", f"Échec de connexion sur {url} : {str(e)}")
             continue
             
-    await interaction.followup.send(f"❌ L'API MineStrator a refusé la commande. Fais `/og` pour enquêter.")
+    await interaction.followup.send(f"❌ L'API MineStrator a refusé la commande. Fais `/log` pour enquêter.")
 
 # 5. Les Commandes Slash
 @bot.slash_command(name="start", description="Démarre le serveur")
@@ -140,10 +138,41 @@ async def server_status(interaction: nextcord.Interaction):
             add_log("error", f"Échec statut sur {url} : {str(e)}")
             continue
             
-    await interaction.followup.send(f"❌ Impossible de récupérer le statut. Fais `/og`.", ephemeral=True)
+    await interaction.followup.send(f"❌ Impossible de récupérer le statut. Fais `/log`.", ephemeral=True)
 
-# 🛠️ LA COMMANDE DE LOGS ET DIAGNOSTIC (Exclusivité)
-@bot.slash_command(name="og", description="Affiche l'historique des erreurs et l'aide au diagnostic")
+@bot.slash_command(name="list_servers", description="Affiche les détails complets de ton serveur")
+async def list_servers(interaction: nextcord.Interaction):
+    if str(interaction.user.id) not in ALLOWED_USERS:
+        await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    headers = get_headers()
+    
+    urls_to_try = [
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}",
+        f"https://api.minestrator.com/v1/servers/{SERVER_ID}",
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}/status"
+    ]
+    
+    for url in urls_to_try:
+        try:
+            r = requests.get(url, headers=headers, timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                msg = f"📋 **Informations du serveur :**\n"
+                msg += f"• **Nom :** {data.get('name', 'Inconnu')}\n"
+                msg += f"• **ID :** {data.get('id', SERVER_ID)}\n"
+                msg += f"• **Statut :** {data.get('status', 'Inconnu')}\n"
+                await interaction.followup.send(msg, ephemeral=True)
+                return
+        except Exception:
+            continue
+            
+    await interaction.followup.send(f"❌ Impossible de récupérer les détails. Fais `/log`.", ephemeral=True)
+
+# 🛠️ LA COMMANDE DE LOGS ET DIAGNOSTIC REMASTERISÉE
+@bot.slash_command(name="log", description="Affiche l'historique des erreurs et l'aide au diagnostic")
 async def get_bot_logs(interaction: nextcord.Interaction):
     if str(interaction.user.id) not in ALLOWED_USERS:
         await interaction.response.send_message("❌ Réservé aux administrateurs du bot.", ephemeral=True)
@@ -151,30 +180,26 @@ async def get_bot_logs(interaction: nextcord.Interaction):
 
     await interaction.response.defer(ephemeral=True)
 
-    # 1. Construction du guide d'aide de secours (Le "Pourquoi ça rate")
     recap_diagnostic = (
         "📊 **GUIDE DE DIAGNOSTIC RAPIDE (Pourquoi ça rate ?)**\n"
-        "---"
-        "• ❌ **Si tu as testé Selenium juste avant :** Ça a planté instantanément parce que Railway n'inclut pas Google Chrome par défaut. Sans configuration Docker avancée, Selenium cherche un écran et un navigateur web qui n'existent pas sur le serveur de Railway.\n"
-        "• 🔒 **Erreur 403 Forbidden :** Ton token `MINESTRATOR_TOKEN` n'est pas le bon (prends bien la **Clé principale** tout en haut sur leur site) OU alors MineStrator bloque Railway avec leur protection Cloudflare/Anti-DDoS.\n"
-        "• 🔍 **Erreur 404 Not Found :** L'ID du serveur dans `SERVER_ID` est faux ou mal écrit.\n"
-        "---"
+        "---\n"
+        "• 🔒 **Erreur 403 Forbidden :** Ton token `MINESTRATOR_TOKEN` n'est pas le bon (prends la **Clé principale** tout en haut sur leur site) OU alors MineStrator bloque Railway avec leur protection DDoS.\n"
+        "• 🔍 **Erreur 404 Not Found :** L'ID du serveur dans `SERVER_ID` sur Railway est faux.\n"
+        "---\n"
         "📋 **HISTORIQUE RÉCENT DES ERREURS DU BOT :**\n"
     )
 
     if not BOT_LOGS:
-        log_text = "Aucune erreur enregistrée pour le moment. Le bot tourne à vide."
+        log_text = "Aucune erreur enregistrée pour le moment. Le bot tourne parfaitement !"
     else:
         log_text = "\n".join(BOT_LOGS)
 
     full_message = f"{recap_diagnostic}```txt\n{log_text}\n```"
 
-    # 2. Gestion de la limite des 2000 caractères de Discord
     if len(full_message) > 1950:
-        # Si c'est trop long, on envoie le texte d'aide + les logs dans un fichier .txt attaché
         clean_logs = "\n".join(BOT_LOGS)
         log_file = nextcord.File(io.StringIO(clean_logs), filename="logs_erreur_bot.txt")
-        await interaction.followup.send(content=recap_diagnostic + "⚠️ *Logs trop longs, envoyés sous forme de fichier ci-dessous :*", file=log_file, ephemeral=True)
+        await interaction.followup.send(content=recap_diagnostic + "⚠️ *Logs trop longs, envoyés en fichier joint :*", file=log_file, ephemeral=True)
     else:
         await interaction.followup.send(full_message, ephemeral=True)
 
