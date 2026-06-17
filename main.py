@@ -1,130 +1,182 @@
 import os
 import threading
-import time
+import datetime
+import io
 from flask import Flask
 import nextcord
 from nextcord.ext import commands
+import requests
 
-# Imports Selenium
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+# 1. Système de gestion des Logs en mémoire
+BOT_LOGS = []
 
-# 1. Serveur Web pour Railway
+def add_log(category, message):
+    timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+    log_line = f"[{timestamp}] [{category.upper()}] {message}"
+    print(log_line) # Reste visible sur Railway
+    BOT_LOGS.append(log_line)
+    # On garde uniquement les 50 dernières lignes pour ne pas saturer la RAM
+    if len(BOT_LOGS) > 50:
+        BOT_LOGS.pop(0)
+
+# 2. Serveur Web pour Railway
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "Bot MineStrator Selenium en ligne !"
+    return "Bot MineStrator en ligne !"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
     app.run(host='0.0.0.0', port=port)
 
-# 2. Configuration du Bot Discord
+# 3. Configuration du Bot Discord
 intents = nextcord.Intents.default()
 bot = commands.Bot(intents=intents)
 
 TOKEN = os.environ.get("DISCORD_TOKEN")
+MINE_TOKEN = os.environ.get("MINESTRATOR_TOKEN")
 SERVER_ID = os.environ.get("SERVER_ID")
 ALLOWED_USERS = os.environ.get("ALLOWED_USERS", "").split(",")
-MINE_EMAIL = os.environ.get("MINE_EMAIL")
-MINE_PASSWORD = os.environ.get("MINE_PASSWORD")
 
-# Configuration du navigateur invisible (Headless) pour Railway
-def get_selenium_driver():
-    options = Options()
-    options.add_argument("--headless") # Obligatoire sur Railway (pas d'écran)
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--disable-gpu")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-    
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
-    return driver
+def get_headers():
+    return {
+        "Authorization": f"Bearer {MINE_TOKEN}",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
 
 @bot.event
 async def on_ready():
-    print(f"✅ Bot connecté avec Selenium : {bot.user}")
+    add_log("system", f"Bot connecté : {bot.user}")
     try:
         await bot.sync_all_application_commands()
-        print("✅ Commandes synchronisées !")
+        add_log("system", "Commandes Slash synchronisées avec Discord !")
     except Exception as e:
-        print(f"⚠️ Erreur sync : {e}")
+        add_log("error", f"Erreur de synchronisation : {str(e)}")
 
-# 3. Fonction de pilotage par navigateur
-def run_selenium_action(action):
-    driver = get_selenium_driver()
+# Intercepteur universel d'erreurs Discord
+@bot.event
+async def on_application_command_error(interaction: nextcord.Interaction, exception):
+    error_msg = f"La commande /{interaction.application_command.name} a crashé. Raison : {str(exception)}"
+    add_log("crash", error_msg)
+    
+    # Répondre discrètement à l'utilisateur pour ne pas le laisser bloqué
     try:
-        # 1. Connexion au panel
-        driver.get("https://panel.minestrator.com/login")
-        time.sleep(3) # Attente du chargement
-        
-        # Remplissage du formulaire de connexion
-        # Note : Les sélecteurs (ID/Name) dépendent de la page de MineStrator
-        driver.find_element(By.NAME, "email").send_keys(MINE_EMAIL)
-        driver.find_element(By.NAME, "password").send_keys(MINE_PASSWORD)
-        
-        # Clic sur le bouton de connexion
-        login_button = driver.find_element(By.XPATH, "//button[@type='submit']")
-        login_button.click()
-        time.sleep(4)
-        
-        # 2. Navigation vers la page du serveur
-        driver.get(f"https://panel.minestrator.com/instance/{SERVER_ID}")
-        time.sleep(4)
-        
-        if action == "statut":
-            # Exemple théorique : récupérer le texte contenant le statut
-            status_element = driver.find_element(By.CLASS_NAME, "badge") # À adapter selon le site
-            return f"Le statut textuel détecté est : {status_element.text}"
-            
-        elif action in ["start", "stop"]:
-            # Exemple théorique : cliquer sur le bouton start ou stop
-            btn = driver.find_element(By.XPATH, f"//button[contains(@class, '{action}')]")
-            btn.click()
-            time.sleep(2)
-            return f"Action {action.upper()} envoyée via le clic navigateur !"
-            
-    except Exception as e:
-        return f"Erreur Selenium : {str(e)}"
-    finally:
-        driver.quit() # Toujours fermer le navigateur pour éviter de saturer la RAM
+        msg = "❌ Une erreur interne est survenue. Tape `/og` pour voir le rapport d'erreur."
+        if interaction.response.is_done():
+            await interaction.followup.send(msg, ephemeral=True)
+        else:
+            await interaction.response.send_message(msg, ephemeral=True)
+    except Exception:
+        pass
 
-# 4. Commandes Slash
-@bot.slash_command(name="start", description="Démarre le serveur via Navigateur")
+# 4. Fonction d'appel API automatique
+async def call_minestrator(interaction: nextcord.Interaction, action: str):
+    if str(interaction.user.id) not in ALLOWED_USERS:
+        await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
+        return
+
+    await interaction.response.defer()
+    headers = get_headers()
+    
+    urls_to_try = [
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}/{action}",
+        f"https://api.minestrator.com/v1/servers/{SERVER_ID}/{action}",
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}/action/{action}"
+    ]
+
+    add_log("api", f"Tentative d'action [{action.upper()}] pour le serveur {SERVER_ID}")
+
+    for url in urls_to_try:
+        try:
+            r = requests.post(url, headers=headers, timeout=5)
+            add_log("api", f"Test URL: {url} -> Code reçu: {r.status_code}")
+            if r.status_code in (200, 204, 201):
+                await interaction.followup.send(f"🟢 Commande **{action.upper()}** validée !")
+                add_log("success", f"Action {action.upper()} réussie.")
+                return
+        except Exception as e:
+            add_log("error", f"Échec de connexion sur {url} : {str(e)}")
+            continue
+            
+    await interaction.followup.send(f"❌ L'API MineStrator a refusé la commande. Fais `/og` pour enquêter.")
+
+# 5. Les Commandes Slash
+@bot.slash_command(name="start", description="Démarre le serveur")
 async def start_server(interaction: nextcord.Interaction):
-    if str(interaction.user.id) not in ALLOWED_USERS:
-        await interaction.response.send_message("❌ Hors de question.", ephemeral=True)
-        return
-        
-    await interaction.response.defer()
-    # On execute Selenium dans un thread séparé pour ne pas faire crash Discord (qui n'attend pas)
-    result = run_selenium_action("start")
-    await interaction.followup.send(result)
+    await call_minestrator(interaction, "start")
 
-@bot.slash_command(name="stop", description="Arrête le serveur via Navigateur")
+@bot.slash_command(name="stop", description="Arrête le serveur")
 async def stop_server(interaction: nextcord.Interaction):
-    if str(interaction.user.id) not in ALLOWED_USERS:
-        await interaction.response.send_message("❌ Hors de question.", ephemeral=True)
-        return
-        
-    await interaction.response.defer()
-    result = run_selenium_action("stop")
-    await interaction.followup.send(result)
+    await call_minestrator(interaction, "stop")
 
-@bot.slash_command(name="statut", description="Vérifie le statut via Navigateur")
-async def status_server(interaction: nextcord.Interaction):
+@bot.slash_command(name="statut", description="Affiche le statut du serveur")
+async def server_status(interaction: nextcord.Interaction):
     if str(interaction.user.id) not in ALLOWED_USERS:
-        await interaction.response.send_message("❌ Hors de question.", ephemeral=True)
+        await interaction.response.send_message("❌ Pas d'autorisation.", ephemeral=True)
         return
-        
+
     await interaction.response.defer(ephemeral=True)
-    result = run_selenium_action("statut")
-    await interaction.followup.send(result, ephemeral=True)
+    headers = get_headers()
+    
+    urls_to_try = [
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}",
+        f"https://api.minestrator.com/v1/servers/{SERVER_ID}",
+        f"https://api.minestrator.com/v1/server/{SERVER_ID}/status"
+    ]
+    
+    for url in urls_to_try:
+        try:
+            r = requests.get(url, headers=headers, timeout=5)
+            add_log("api", f"Test Statut URL: {url} -> Code: {r.status_code}")
+            if r.status_code == 200:
+                data = r.json()
+                status = str(data.get('status', 'Inconnu')).lower()
+                emoji = "🟢" if "on" in status or "run" in status else "🔴"
+                await interaction.followup.send(f"{emoji} **Statut :** {status.upper()}", ephemeral=True)
+                return
+        except Exception as e:
+            add_log("error", f"Échec statut sur {url} : {str(e)}")
+            continue
+            
+    await interaction.followup.send(f"❌ Impossible de récupérer le statut. Fais `/og`.", ephemeral=True)
+
+# 🛠️ LA COMMANDE DE LOGS ET DIAGNOSTIC (Exclusivité)
+@bot.slash_command(name="og", description="Affiche l'historique des erreurs et l'aide au diagnostic")
+async def get_bot_logs(interaction: nextcord.Interaction):
+    if str(interaction.user.id) not in ALLOWED_USERS:
+        await interaction.response.send_message("❌ Réservé aux administrateurs du bot.", ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+
+    # 1. Construction du guide d'aide de secours (Le "Pourquoi ça rate")
+    recap_diagnostic = (
+        "📊 **GUIDE DE DIAGNOSTIC RAPIDE (Pourquoi ça rate ?)**\n"
+        "---"
+        "• ❌ **Si tu as testé Selenium juste avant :** Ça a planté instantanément parce que Railway n'inclut pas Google Chrome par défaut. Sans configuration Docker avancée, Selenium cherche un écran et un navigateur web qui n'existent pas sur le serveur de Railway.\n"
+        "• 🔒 **Erreur 403 Forbidden :** Ton token `MINESTRATOR_TOKEN` n'est pas le bon (prends bien la **Clé principale** tout en haut sur leur site) OU alors MineStrator bloque Railway avec leur protection Cloudflare/Anti-DDoS.\n"
+        "• 🔍 **Erreur 404 Not Found :** L'ID du serveur dans `SERVER_ID` est faux ou mal écrit.\n"
+        "---"
+        "📋 **HISTORIQUE RÉCENT DES ERREURS DU BOT :**\n"
+    )
+
+    if not BOT_LOGS:
+        log_text = "Aucune erreur enregistrée pour le moment. Le bot tourne à vide."
+    else:
+        log_text = "\n".join(BOT_LOGS)
+
+    full_message = f"{recap_diagnostic}```txt\n{log_text}\n```"
+
+    # 2. Gestion de la limite des 2000 caractères de Discord
+    if len(full_message) > 1950:
+        # Si c'est trop long, on envoie le texte d'aide + les logs dans un fichier .txt attaché
+        clean_logs = "\n".join(BOT_LOGS)
+        log_file = nextcord.File(io.StringIO(clean_logs), filename="logs_erreur_bot.txt")
+        await interaction.followup.send(content=recap_diagnostic + "⚠️ *Logs trop longs, envoyés sous forme de fichier ci-dessous :*", file=log_file, ephemeral=True)
+    else:
+        await interaction.followup.send(full_message, ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
