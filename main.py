@@ -13,7 +13,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
-# 1. Moteur de double journalisation (File Logging)
+# 1. Moteur de double journalisation
 def write_bot_log(message):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{timestamp}] [DISCORD] {message}\n"
@@ -28,13 +28,12 @@ def write_mine_log(message):
     with open("log_minestrator.txt", "a", encoding="utf-8") as f:
         f.write(line)
 
-# Initialisation des fichiers pour éviter les bugs de lecture
 for filename in ["log_bot.txt", "log_minestrator.txt"]:
     if not os.path.exists(filename):
         with open(filename, "w", encoding="utf-8") as f:
             f.write(f"--- Création du fichier le {datetime.datetime.now()} ---\n")
 
-# 2. Serveur Web de maintien en vie pour Railway
+# 2. Serveur Web pour Railway
 app = Flask('')
 
 @app.route('/')
@@ -57,13 +56,17 @@ MINE_PASSWORD = os.environ.get("MINE_PASSWORD")
 
 def get_selenium_driver():
     options = Options()
-    options.add_argument("--headless")  # Mode sans écran indispensable sur Railway
+    options.add_argument("--headless")  # Obligatoire sur Railway
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
+    # Force l'utilisation du Chrome installé par le buildpack de Railway s'il existe
+    if os.path.exists("/usr/bin/google-chrome"):
+        options.binary_location = "/usr/bin/google-chrome"
+        
     service = Service(ChromeDriverManager().install())
     return webdriver.Chrome(service=service, options=options)
 
@@ -88,38 +91,38 @@ async def on_application_command_error(interaction: nextcord.Interaction, except
     except Exception:
         pass
 
-# 4. Cerveau d'automatisation Selenium (Exécuté en tâche de fond)
+# 4. Automatisation Selenium
 def selenium_worker(action, server_id, email, password):
     write_mine_log(f"Démarrage du navigateur pour l'action : [{action.upper()}]")
     driver = None
     try:
         driver = get_selenium_driver()
         
-        # Étape 1 : Connexion à MineStrator
+        # Étape 1 : Connexion
         write_mine_log("Navigation vers la page de login...")
         driver.get("https://panel.minestrator.com/login")
         time.sleep(4)
         
-        write_mine_log(f"Tentative d'identification pour l'adresse : {email}")
+        write_mine_log(f"Tentative d'identification pour : {email}")
         driver.find_element(By.NAME, "email").send_keys(email)
         driver.find_element(By.NAME, "password").send_keys(password)
         
         submit_btn = driver.find_element(By.XPATH, "//button[@type='submit']")
         submit_btn.click()
         time.sleep(5)
-        write_mine_log("Formulaire de connexion soumis avec succès.")
+        write_mine_log("Formulaire de connexion soumis.")
         
-        # Étape 2 : Accès à l'instance du serveur
+        # Étape 2 : Instance
         target_url = f"https://panel.minestrator.com/instance/{server_id}"
-        write_mine_log(f"Navigation vers l'instance du serveur Minecraft : {target_url}")
+        write_mine_log(f"Navigation vers l'instance : {target_url}")
         driver.get(target_url)
         time.sleep(5)
         
+        page_text = driver.page_source.lower()
+        
         # Étape 3 : Traitement des actions
         if action == "statut":
-            write_mine_log("Scraping du statut du serveur...")
-            # Recherche textuelle globale ou par classe générique du badge de statut
-            page_text = driver.page_source.lower()
+            write_mine_log("Scraping du statut...")
             if "en ligne" in page_text or "online" in page_text or "started" in page_text:
                 return "🟢 EN LIGNE"
             elif "éteint" in page_text or "offline" in page_text or "stopped" in page_text:
@@ -127,63 +130,67 @@ def selenium_worker(action, server_id, email, password):
             else:
                 return "🟠 EN COURS DE DÉMARRAGE / ARRÊT"
                 
+        elif action == "list_servers":
+            write_mine_log("Scraping pour list_servers...")
+            status_info = "🟢 EN LIGNE" if ("en ligne" in page_text or "online" in page_text) else "🔴 ÉTEINT"
+            return f"📋 **Détails de ton serveur MineStrator :**\n• **ID de l'instance :** `{server_id}`\n• **Statut actuel :** {status_info}\n• **Accès :** Sécurisé via Navigateur Émulé"
+
         elif action in ["start", "stop"]:
-            write_mine_log(f"Recherche du bouton de contrôle [{action.upper()}]...")
-            # Recherche d'un bouton contenant le mot clé (s'adapte si le panel change de structure)
+            write_mine_log(f"Recherche du bouton [{action.upper()}]...")
             keyword = "Démarrer" if action == "start" else "Arrêter"
             btn = driver.find_element(By.XPATH, f"//button[contains(text(), '{keyword}')] | //a[contains(text(), '{keyword}')]")
             btn.click()
-            write_mine_log(f"Clic effectué sur le bouton {keyword}.")
+            write_mine_log(f"Clic effectué sur {keyword}.")
             time.sleep(2)
-            return f"✅ L'action navigateur **{action.upper()}** a été envoyée au panel MineStrator !"
+            return f"✅ L'action navigateur **{action.upper()}** a été validée !"
 
     except Exception as e:
         write_mine_log(f"❌ CRASH SÉLENIUM : {str(e)}")
-        return f"❌ Échec de la simulation de navigation. Consulte `/log` pour voir le rapport."
+        return f"❌ Échec. Regarde le fichier `log_minestrator.txt` via la commande `/log`."
     finally:
         if driver:
             driver.quit()
-            write_mine_log("Navigateur Chrome fermé proprement.")
+            write_mine_log("Navigateur Chrome fermé.")
 
-# 5. Commandes de contrôle sur Discord
+# 5. Commandes Discord
 async def run_command_flow(interaction: nextcord.Interaction, action: str):
     if str(interaction.user.id) not in ALLOWED_USERS:
-        write_bot_log(f"Alerte sécurité : L'utilisateur {interaction.user.name} ({interaction.user.id}) a tenté d'utiliser /{action} sans autorisation.")
+        write_bot_log(f"Alerte sécurité : /{action} refusé pour {interaction.user.name}")
         await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
         return
 
-    write_bot_log(f"Commande /{action} activée par {interaction.user.name}")
-    await interaction.response.defer(ephemeral=(action == "statut"))
+    write_bot_log(f"Commande /{action} lancée par {interaction.user.name}")
+    await interaction.response.defer(ephemeral=(action in ["statut", "list_servers"]))
     
-    # Exécution dans un thread séparé pour ne pas faire geler ou expirer l'interaction Discord
     def thread_target():
         res = selenium_worker(action, SERVER_ID, MINE_EMAIL, MINE_PASSWORD)
         bot.loop.create_task(interaction.followup.send(res))
         
     threading.Thread(target=thread_target, daemon=True).start()
 
-@bot.slash_command(name="start", description="Démarre le serveur via simulation Chrome")
+@bot.slash_command(name="start", description="Démarre le serveur via Chrome")
 async def start_server(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "start")
 
-@bot.slash_command(name="stop", description="Arrête le serveur via simulation Chrome")
+@bot.slash_command(name="stop", description="Arrête le serveur via Chrome")
 async def stop_server(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "stop")
 
-@bot.slash_command(name="statut", description="Scrape le statut réel sur l'écran MineStrator")
+@bot.slash_command(name="statut", description="Affiche le statut en direct")
 async def status_server(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "statut")
 
-# 🛠️ LA COMMANDE /LOG DOUBLE EXTRACTION
-@bot.slash_command(name="log", description="Télécharge directement les fichiers de logs du bot et de MineStrator")
+@bot.slash_command(name="list_servers", description="Affiche les détails de ton instance")
+async def list_servers(interaction: nextcord.Interaction):
+    await run_command_flow(interaction, "list_servers")
+
+@bot.slash_command(name="log", description="Télécharge les fichiers de logs")
 async def get_bot_logs(interaction: nextcord.Interaction):
     if str(interaction.user.id) not in ALLOWED_USERS:
-        await interaction.response.send_message("❌ Réservé aux administrateurs du bot.", ephemeral=True)
+        await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
         return
 
     await interaction.response.defer(ephemeral=True)
-    write_bot_log(f"Extraction des fichiers de logs demandée par {interaction.user.name}")
-
     files_to_send = []
     if os.path.exists("log_bot.txt"):
         files_to_send.append(nextcord.File("log_bot.txt"))
@@ -192,12 +199,12 @@ async def get_bot_logs(interaction: nextcord.Interaction):
 
     if files_to_send:
         await interaction.followup.send(
-            content="📋 **Voici les boîtes noires demandées :**\n- `log_bot.txt` (Activité Discord)\n- `log_minestrator.txt` (Activité Chrome/Selenium)",
+            content="📋 **Voici les boîtes noires demandées :**",
             files=files_to_send,
             ephemeral=True
         )
     else:
-        await interaction.followup.send("⚠️ Aucun fichier de log trouvé sur le serveur.", ephemeral=True)
+        await interaction.followup.send("⚠️ Aucun fichier trouvé.", ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
