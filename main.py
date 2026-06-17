@@ -12,7 +12,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 
-# 1. Moteur de double journalisation (Fichiers locaux)
+# 1. Moteur de double journalisation
 def write_bot_log(message):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{timestamp}] [DISCORD] {message}\n"
@@ -55,14 +55,13 @@ MINE_PASSWORD = os.environ.get("MINE_PASSWORD")
 
 def get_selenium_driver():
     options = Options()
-    options.add_argument("--headless")  # Obligatoire sur serveur en cloud
+    options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
-    # Chemins d'accès natifs injectés par notre Dockerfile
     options.binary_location = "/usr/bin/chromium"
     service = Service("/usr/bin/chromedriver")
     return webdriver.Chrome(service=service, options=options)
@@ -70,11 +69,8 @@ def get_selenium_driver():
 @bot.event
 async def on_ready():
     write_bot_log(f"Bot connecté sous le nom : {bot.user}")
-    try:
-        await bot.sync_all_application_commands()
-        write_bot_log("Commandes slash synchronisées.")
-    except Exception as e:
-        write_bot_log(f"Erreur sync : {str(e)}")
+    # SÉCURITÉ : La ligne de synchronisation forcée a été retirée pour éviter le ban Cloudflare 429.
+    # Tes commandes slash sont déjà enregistrées chez Discord, pas besoin de forcer.
 
 @bot.event
 async def on_application_command_error(interaction: nextcord.Interaction, exception):
@@ -95,7 +91,6 @@ def selenium_worker(action, server_id, email, password):
     try:
         driver = get_selenium_driver()
         
-        # Connexion au panel
         write_mine_log("Navigation vers la page de login...")
         driver.get("https://panel.minestrator.com/login")
         time.sleep(4)
@@ -109,7 +104,6 @@ def selenium_worker(action, server_id, email, password):
         time.sleep(5)
         write_mine_log("Formulaire de connexion soumis.")
         
-        # Navigation vers le serveur ciblé
         target_url = f"https://panel.minestrator.com/instance/{server_id}"
         write_mine_log(f"Navigation vers l'instance : {target_url}")
         driver.get(target_url)
@@ -117,7 +111,6 @@ def selenium_worker(action, server_id, email, password):
         
         page_text = driver.page_source.lower()
         
-        # Traitement de l'action demandée
         if action == "statut":
             write_mine_log("Lecture du statut sur la page...")
             if "en ligne" in page_text or "online" in page_text or "started" in page_text:
