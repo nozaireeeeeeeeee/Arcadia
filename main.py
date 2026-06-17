@@ -6,11 +6,9 @@ from flask import Flask
 import nextcord
 from nextcord.ext import commands
 
-# Imports Selenium
-from selenium import webdriver
+# Remplacement de l'import Selenium classique par la version indétectable
+import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
 
 # 1. Moteur de double journalisation
 def write_bot_log(message):
@@ -54,23 +52,24 @@ MINE_EMAIL = os.environ.get("MINE_EMAIL")
 MINE_PASSWORD = os.environ.get("MINE_PASSWORD")
 
 def get_selenium_driver():
-    options = Options()
-    options.add_argument("--headless")
+    options = uc.ChromeOptions()
+    options.add_argument("--headless")  # Obligatoire sur serveur Cloud
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
-    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
-    options.binary_location = "/usr/bin/chromium"
-    service = Service("/usr/bin/chromedriver")
-    return webdriver.Chrome(service=service, options=options)
+    # Configuration du navigateur furtif anti-Cloudflare
+    driver = uc.Chrome(
+        options=options, 
+        browser_executable_path="/usr/bin/chromium",
+        driver_executable_path="/usr/bin/chromedriver"
+    )
+    return driver
 
 @bot.event
 async def on_ready():
     write_bot_log(f"Bot connecté sous le nom : {bot.user}")
-    # SÉCURITÉ : La ligne de synchronisation forcée a été retirée pour éviter le ban Cloudflare 429.
-    # Tes commandes slash sont déjà enregistrées chez Discord, pas besoin de forcer.
 
 @bot.event
 async def on_application_command_error(interaction: nextcord.Interaction, exception):
@@ -86,14 +85,22 @@ async def on_application_command_error(interaction: nextcord.Interaction, except
 
 # 4. Automatisation de la simulation Chrome
 def selenium_worker(action, server_id, email, password):
-    write_mine_log(f"Démarrage du navigateur pour l'action : [{action.upper()}]")
+    # Sécurité anti-variables vides
+    if not email or not password or email == "None":
+        write_mine_log("❌ ERREUR : Les variables MINE_EMAIL ou MINE_PASSWORD ne sont pas configurées sur Railway !")
+        return "❌ Erreur : Identifiants de connexion introuvables dans les variables Railway."
+
+    write_mine_log(f"Démarrage du navigateur furtif pour l'action : [{action.upper()}]")
     driver = None
     try:
         driver = get_selenium_driver()
         
-        write_mine_log("Navigation vers la page de login...")
+        write_mine_log("Navigation furtive vers la page de login...")
         driver.get("https://panel.minestrator.com/login")
-        time.sleep(4)
+        time.sleep(6) # On laisse un peu plus de temps pour l'authentification transparente
+        
+        # Diagnostic en cas de blocage de page
+        write_mine_log(f"Titre de la page chargée : '{driver.title}'")
         
         write_mine_log(f"Tentative d'identification pour : {email}")
         driver.find_element(By.NAME, "email").send_keys(email)
@@ -123,7 +130,7 @@ def selenium_worker(action, server_id, email, password):
         elif action == "list_servers":
             write_mine_log("Lecture des détails de l'instance pour list_servers...")
             status_info = "🟢 EN LIGNE" if ("en ligne" in page_text or "online" in page_text) else "🔴 ÉTEINT"
-            return f"📋 **Détails de ton serveur MineStrator :**\n• **ID de l'instance :** `{server_id}`\n• **Statut actuel :** {status_info}\n• **Mode d'accès :** Navigateur Émulé (Sécurisé)"
+            return f"📋 **Détails de ton serveur MineStrator :**\n• **ID de l'instance :** `{server_id}`\n• **Statut actuel :** {status_info}\n• **Mode d'accès :** Navigateur Furtif Émulé"
 
         elif action in ["start", "stop"]:
             write_mine_log(f"Recherche du bouton [{action.upper()}]...")
@@ -132,10 +139,12 @@ def selenium_worker(action, server_id, email, password):
             btn.click()
             write_mine_log(f"Clic effectué sur le bouton {keyword}.")
             time.sleep(2)
-            return f"✅ L'action navigateur **{action.upper()}** a été transmise avec succès au panel !"
+            return f"✅ L'action navigateur **{action.upper()}** a été transmise au panel !"
 
     except Exception as e:
         write_mine_log(f"❌ CRASH SÉLENIUM : {str(e)}")
+        if driver:
+            write_mine_log(f"DEBUG - Contenu partiel au crash : {driver.page_source[:300]}")
         return f"❌ Échec de l'opération. Télécharge le fichier `log_minestrator.txt` via la commande `/log`."
     finally:
         if driver:
