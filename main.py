@@ -54,11 +54,11 @@ MINE_PASSWORD = os.environ.get("MINE_PASSWORD")
 def get_selenium_driver():
     options = uc.ChromeOptions()
     
-    # 🌐 CONFIGURATION DU PROXY (À modifier avec tes vraies infos)
-    PROXY = "94.156.114.132:524"  # <-- Remplace par l'IP et le PORT de ton proxy
+    # 🌐 TEST AVEC LES PAYS-BAS + AJOUT DE HTTP://
+    PROXY = "http://45.84.222.25:1080"  
     options.add_argument(f'--proxy-server={PROXY}')
     
-    # Reste de la configuration de camouflage
+    # Reste de la configuration (ne change rien d'autre)
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
