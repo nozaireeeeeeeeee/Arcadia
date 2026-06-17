@@ -11,9 +11,8 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
 
-# 1. Moteur de double journalisation
+# 1. Moteur de double journalisation (Fichiers locaux)
 def write_bot_log(message):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{timestamp}] [DISCORD] {message}\n"
@@ -56,18 +55,16 @@ MINE_PASSWORD = os.environ.get("MINE_PASSWORD")
 
 def get_selenium_driver():
     options = Options()
-    options.add_argument("--headless")  # Obligatoire sur Railway
+    options.add_argument("--headless")  # Obligatoire sur serveur en cloud
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("window-size=1920,1080")
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     
-    # Force l'utilisation du Chrome installé par le buildpack de Railway s'il existe
-    if os.path.exists("/usr/bin/google-chrome"):
-        options.binary_location = "/usr/bin/google-chrome"
-        
-    service = Service(ChromeDriverManager().install())
+    # Chemins d'accès natifs injectés par notre Dockerfile
+    options.binary_location = "/usr/bin/chromium"
+    service = Service("/usr/bin/chromedriver")
     return webdriver.Chrome(service=service, options=options)
 
 @bot.event
@@ -83,7 +80,7 @@ async def on_ready():
 async def on_application_command_error(interaction: nextcord.Interaction, exception):
     write_bot_log(f"Crash commande /{interaction.application_command.name} | Erreur : {str(exception)}")
     try:
-        msg = "❌ Le bot a rencontré une erreur de script. Utilise `/log` pour télécharger la boîte noire."
+        msg = "❌ Le bot a rencontré une erreur. Utilise `/log` pour télécharger la boîte noire."
         if interaction.response.is_done():
             await interaction.followup.send(msg, ephemeral=True)
         else:
@@ -91,14 +88,14 @@ async def on_application_command_error(interaction: nextcord.Interaction, except
     except Exception:
         pass
 
-# 4. Automatisation Selenium
+# 4. Automatisation de la simulation Chrome
 def selenium_worker(action, server_id, email, password):
     write_mine_log(f"Démarrage du navigateur pour l'action : [{action.upper()}]")
     driver = None
     try:
         driver = get_selenium_driver()
         
-        # Étape 1 : Connexion
+        # Connexion au panel
         write_mine_log("Navigation vers la page de login...")
         driver.get("https://panel.minestrator.com/login")
         time.sleep(4)
@@ -112,7 +109,7 @@ def selenium_worker(action, server_id, email, password):
         time.sleep(5)
         write_mine_log("Formulaire de connexion soumis.")
         
-        # Étape 2 : Instance
+        # Navigation vers le serveur ciblé
         target_url = f"https://panel.minestrator.com/instance/{server_id}"
         write_mine_log(f"Navigation vers l'instance : {target_url}")
         driver.get(target_url)
@@ -120,9 +117,9 @@ def selenium_worker(action, server_id, email, password):
         
         page_text = driver.page_source.lower()
         
-        # Étape 3 : Traitement des actions
+        # Traitement de l'action demandée
         if action == "statut":
-            write_mine_log("Scraping du statut...")
+            write_mine_log("Lecture du statut sur la page...")
             if "en ligne" in page_text or "online" in page_text or "started" in page_text:
                 return "🟢 EN LIGNE"
             elif "éteint" in page_text or "offline" in page_text or "stopped" in page_text:
@@ -131,35 +128,35 @@ def selenium_worker(action, server_id, email, password):
                 return "🟠 EN COURS DE DÉMARRAGE / ARRÊT"
                 
         elif action == "list_servers":
-            write_mine_log("Scraping pour list_servers...")
+            write_mine_log("Lecture des détails de l'instance pour list_servers...")
             status_info = "🟢 EN LIGNE" if ("en ligne" in page_text or "online" in page_text) else "🔴 ÉTEINT"
-            return f"📋 **Détails de ton serveur MineStrator :**\n• **ID de l'instance :** `{server_id}`\n• **Statut actuel :** {status_info}\n• **Accès :** Sécurisé via Navigateur Émulé"
+            return f"📋 **Détails de ton serveur MineStrator :**\n• **ID de l'instance :** `{server_id}`\n• **Statut actuel :** {status_info}\n• **Mode d'accès :** Navigateur Émulé (Sécurisé)"
 
         elif action in ["start", "stop"]:
             write_mine_log(f"Recherche du bouton [{action.upper()}]...")
             keyword = "Démarrer" if action == "start" else "Arrêter"
             btn = driver.find_element(By.XPATH, f"//button[contains(text(), '{keyword}')] | //a[contains(text(), '{keyword}')]")
             btn.click()
-            write_mine_log(f"Clic effectué sur {keyword}.")
+            write_mine_log(f"Clic effectué sur le bouton {keyword}.")
             time.sleep(2)
-            return f"✅ L'action navigateur **{action.upper()}** a été validée !"
+            return f"✅ L'action navigateur **{action.upper()}** a été transmise avec succès au panel !"
 
     except Exception as e:
         write_mine_log(f"❌ CRASH SÉLENIUM : {str(e)}")
-        return f"❌ Échec. Regarde le fichier `log_minestrator.txt` via la commande `/log`."
+        return f"❌ Échec de l'opération. Télécharge le fichier `log_minestrator.txt` via la commande `/log`."
     finally:
         if driver:
             driver.quit()
-            write_mine_log("Navigateur Chrome fermé.")
+            write_mine_log("Navigateur Chrome fermé proprement.")
 
-# 5. Commandes Discord
+# 5. Connecteurs de Commandes Discord Slash
 async def run_command_flow(interaction: nextcord.Interaction, action: str):
     if str(interaction.user.id) not in ALLOWED_USERS:
-        write_bot_log(f"Alerte sécurité : /{action} refusé pour {interaction.user.name}")
+        write_bot_log(f"Alerte sécurité : /{action} refusé pour l'utilisateur {interaction.user.name}")
         await interaction.response.send_message("❌ Tu n'as pas l'autorisation.", ephemeral=True)
         return
 
-    write_bot_log(f"Commande /{action} lancée par {interaction.user.name}")
+    write_bot_log(f"Commande /{action} initiée par {interaction.user.name}")
     await interaction.response.defer(ephemeral=(action in ["statut", "list_servers"]))
     
     def thread_target():
@@ -168,23 +165,23 @@ async def run_command_flow(interaction: nextcord.Interaction, action: str):
         
     threading.Thread(target=thread_target, daemon=True).start()
 
-@bot.slash_command(name="start", description="Démarre le serveur via Chrome")
+@bot.slash_command(name="start", description="Démarre le serveur Minecraft via simulation Chrome")
 async def start_server(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "start")
 
-@bot.slash_command(name="stop", description="Arrête le serveur via Chrome")
+@bot.slash_command(name="stop", description="Arrête le serveur Minecraft via simulation Chrome")
 async def stop_server(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "stop")
 
-@bot.slash_command(name="statut", description="Affiche le statut en direct")
+@bot.slash_command(name="statut", description="Affiche le statut en direct de la machine")
 async def status_server(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "statut")
 
-@bot.slash_command(name="list_servers", description="Affiche les détails de ton instance")
+@bot.slash_command(name="list_servers", description="Affiche les configurations de ton instance")
 async def list_servers(interaction: nextcord.Interaction):
     await run_command_flow(interaction, "list_servers")
 
-@bot.slash_command(name="log", description="Télécharge les fichiers de logs")
+@bot.slash_command(name="log", description="Télécharge instantanément les deux boîtes noires du système")
 async def get_bot_logs(interaction: nextcord.Interaction):
     if str(interaction.user.id) not in ALLOWED_USERS:
         await interaction.response.send_message("❌ Réservé aux administrateurs.", ephemeral=True)
@@ -199,12 +196,12 @@ async def get_bot_logs(interaction: nextcord.Interaction):
 
     if files_to_send:
         await interaction.followup.send(
-            content="📋 **Voici les boîtes noires demandées :**",
+            content="📋 **Voici l'extraction complète de tes logs :**",
             files=files_to_send,
             ephemeral=True
         )
     else:
-        await interaction.followup.send("⚠️ Aucun fichier trouvé.", ephemeral=True)
+        await interaction.followup.send("⚠️ Aucun fichier de log généré pour le moment.", ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server, daemon=True).start()
